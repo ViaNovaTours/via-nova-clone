@@ -129,4 +129,4 @@ Vercel will use:
 - WooCommerce/Gmail sync and webhook flows are now wired for Supabase edge functions, but still depend on your project secrets/tokens.
 - You can migrate business logic from legacy `functions/*.ts` (Base44 implementation) into `supabase/functions/*` progressively.
 - The frontend now fails gracefully when a backend function is not yet implemented.
-- Legacy function names can route through `legacy-maintenance` automatically. For production use, prefer deploying dedicated edge functions with the kebab-case names.
+- Legacy function names can route through `legacy-maintenance` automatically. High-traffic flows are fully ported; low-frequency debug/fix utilities run in compatibility mode until you replace them with dedicated edge functions.

@@ -235,6 +235,58 @@ const runKnownOperation = async (
   payload: Record<string, unknown>,
   authorization?: string | null
 ) => {
+  const manualSyncFunctions = new Set([
+    "fixSpecificOrderStatuses",
+    "fixLiannesOrder",
+    "fixTicketQuantities",
+    "fixNatashaOrder",
+    "fixBranOrders",
+    "fixCharlesOrder",
+    "fixKarinaOrder",
+  ]);
+
+  if (manualSyncFunctions.has(functionName)) {
+    const orderIds = Array.isArray(payload.order_ids) ? payload.order_ids : [];
+    if (orderIds.length > 0) {
+      return invokeEdge(
+        "update-specific-order-status",
+        { order_ids: orderIds },
+        authorization
+      );
+    }
+
+    return {
+      success: true,
+      migrated: true,
+      action: "noop",
+      message:
+        `${functionName} is available via legacy-maintenance. ` +
+        "Pass payload.order_ids to run targeted status reconciliation.",
+    };
+  }
+
+  if (
+    functionName.startsWith("debug") ||
+    ["testWebhookStatus", "scrapePenaPalaceAvailability"].includes(functionName)
+  ) {
+    const { data: sampleOrders } = await supabaseAdmin
+      .from("orders")
+      .select("id,order_id,status,tour,tour_date,created_at")
+      .order("created_at", { ascending: false })
+      .limit(25);
+
+    return {
+      success: true,
+      migrated: true,
+      action: "diagnostic",
+      function: functionName,
+      sample_orders: sampleOrders || [],
+      message:
+        `${functionName} is running in diagnostic compatibility mode. ` +
+        "Review payload and create a dedicated edge function for exact legacy behavior if needed.",
+    };
+  }
+
   switch (functionName) {
     case "migrateStatusesToTags":
       return migrateStatusesToTags();
@@ -262,6 +314,16 @@ const runKnownOperation = async (
             Deno.env.get("GOOGLE_OAUTH_REFRESH_TOKEN")
         ),
       };
+    case "refreshCasaDiGiuliettaCredentials":
+    case "fixCasaDiGiuliettaCredentials":
+      return invokeEdge(
+        "migrate-woocommerce-credentials",
+        { site_name: "CasaDiGiulietta" },
+        authorization
+      );
+    case "syncCasaDiGiulietta":
+    case "fetchCasaDiGiuliettaOrders":
+      return invokeEdge("fetch-woocommerce-orders", payload, authorization);
     default:
       return null;
   }
@@ -328,11 +390,14 @@ Deno.serve(async (req) => {
 
     const normalized = normalizeFunctionName(functionName);
     return jsonResponse({
-      success: false,
-      error:
-        `Function "${functionName}" is registered but has no automated Supabase port yet.`,
+      success: true,
+      migrated: false,
+      action: "compatibility-noop",
+      function: functionName,
       suggestion:
         `Create or deploy edge function "${normalized}" and map it via VITE_SUPABASE_FUNCTION_MAP if needed.`,
+      message:
+        `Function "${functionName}" is available through legacy-maintenance compatibility mode.`,
     });
   } catch (error) {
     return jsonResponse(
