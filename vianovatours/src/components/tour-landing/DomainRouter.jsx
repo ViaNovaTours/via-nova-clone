@@ -4,6 +4,7 @@ import { base44 } from "@/api/base44Client";
 import { Loader2 } from "lucide-react";
 import TourLandingPage from "./TourLandingPage";
 import MainHomepage from "../main-site/MainHomepage";
+import { isMainSiteHost } from "@/lib/host-routing";
 
 export default function DomainRouter() {
   const [tourConfig, setTourConfig] = useState(null);
@@ -17,7 +18,7 @@ export default function DomainRouter() {
         const hostname = window.location.hostname;
         
         // Check if this is the main Via Nova Tours site
-        if (hostname === 'vianovatours.com' || hostname === 'www.vianovatours.com') {
+        if (isMainSiteHost(hostname)) {
           setIsMainSite(true);
           setIsLoading(false);
           return;

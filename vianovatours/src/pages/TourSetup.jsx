@@ -217,7 +217,17 @@ export default function TourSetupPage() {
   };
 
   const getWebhookUrl = (siteName) => {
-    return `${window.location.origin}/api/functions/wooCommerceWebhook?site=${siteName}`;
+    const configuredFunctionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const functionsBaseUrl = configuredFunctionsUrl
+      ? configuredFunctionsUrl.replace(/\/$/, '')
+      : supabaseUrl
+        ? `${supabaseUrl}/functions/v1`
+        : `${window.location.origin}/functions/v1`;
+    const webhookFunction =
+      import.meta.env.VITE_WOOCOMMERCE_WEBHOOK_FUNCTION || 'woo-commerce-webhook';
+
+    return `${functionsBaseUrl}/${webhookFunction}?site=${encodeURIComponent(siteName)}`;
   };
 
   if (isLoading) {

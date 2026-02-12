@@ -36,6 +36,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { User } from '@/entities/User'; // Added User entity import
 import { Button } from "@/components/ui/button";
 import { base44 } from "@/api/base44Client";
+import { isAdminHost } from "@/lib/host-routing";
 
 const navigationItems = [
   {
@@ -88,26 +89,15 @@ export default function Layout({ children, currentPageName }) {
   const location = useLocation();
   const [sidebarStats, setSidebarStats] = useState({ new: 0, reserved: 0, complete: 0, failed: 0 });
   const [user, setUser] = useState(null);
-
-  // Don't render layout for tour domains
-  useEffect(() => {
-    const hostname = window.location.hostname;
-    if (hostname !== 'backend.vianovatours.com' && !hostname.includes('base44.app')) {
-      // This is a tour domain, Layout should not render
-      return;
-    }
-  }, []);
-
-  // Check if this is a tour domain
   const hostname = window.location.hostname;
-  if (hostname !== 'backend.vianovatours.com' && !hostname.includes('base44.app')) {
-    // Tour domain - render children without layout
-    return <>{children}</>;
-  }
+  const showDashboardLayout = isAdminHost(hostname);
 
   // Load user and stats for sidebar
   useEffect(() => {
     const loadData = async () => {
+      if (!showDashboardLayout) {
+        return;
+      }
       try {
         // Load user info
         const currentUser = await User.me();
@@ -129,7 +119,11 @@ export default function Layout({ children, currentPageName }) {
     };
 
     loadData();
-  }, []);
+  }, [showDashboardLayout]);
+
+  if (!showDashboardLayout) {
+    return <>{children}</>;
+  }
 
   // Combine regular navigation with admin-only items if user is admin
   const allNavigationItems = useMemo(() => {

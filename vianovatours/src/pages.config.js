@@ -49,6 +49,7 @@
  */
 import About from './pages/About';
 import AdSpend from './pages/AdSpend';
+import Auth from './pages/Auth';
 import Calendar from './pages/Calendar';
 import Completed from './pages/Completed';
 import Contact from './pages/Contact';
@@ -80,6 +81,7 @@ import __Layout from './Layout.jsx';
 export const PAGES = {
     "About": About,
     "AdSpend": AdSpend,
+    "Auth": Auth,
     "Calendar": Calendar,
     "Completed": Completed,
     "Contact": Contact,
