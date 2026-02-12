@@ -3,6 +3,7 @@ import { base44 } from "@/api/base44Client";
 import Dashboard from "./Dashboard";
 import DomainRouter from "../components/tour-landing/DomainRouter";
 import Layout from "../Layout";
+import { isAdminHost } from "@/lib/host-routing";
 
 // This is the main entry point - routes based on domain
 Home.useLayout = false;
@@ -16,7 +17,7 @@ export default function Home() {
       const hostname = window.location.hostname;
       
       // Backend domain - requires auth
-      if (hostname === 'backend.vianovatours.com' || hostname.includes('base44.app')) {
+      if (isAdminHost(hostname)) {
         // Check if user is authenticated
         try {
           const user = await base44.auth.me();
