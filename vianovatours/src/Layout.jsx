@@ -121,10 +121,6 @@ export default function Layout({ children, currentPageName }) {
     loadData();
   }, [showDashboardLayout]);
 
-  if (!showDashboardLayout) {
-    return <>{children}</>;
-  }
-
   // Combine regular navigation with admin-only items if user is admin
   const allNavigationItems = useMemo(() => {
     const items = [...navigationItems];
@@ -133,6 +129,10 @@ export default function Layout({ children, currentPageName }) {
     }
     return items;
   }, [user]); // Dependency on user state
+
+  if (!showDashboardLayout) {
+    return <>{children}</>;
+  }
 
   return (
     <SidebarProvider>
