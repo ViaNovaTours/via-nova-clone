@@ -60,15 +60,21 @@ supabase functions deploy process-landing-page-booking
 supabase functions deploy send-email-via-sendgrid
 supabase functions deploy generate-tour-content
 supabase functions deploy invoke-llm
+supabase functions deploy generate-sitemap
+supabase functions deploy generate-robots-txt
 supabase functions deploy upload-to-google-drive
 supabase functions deploy send-ticket-email
 supabase functions deploy send-reserved-email
+supabase functions deploy sendgrid-webhook
+supabase functions deploy log-email-communication
+supabase functions deploy woo-commerce-webhook
 supabase functions deploy fetch-woocommerce-orders
 supabase functions deploy migrate-woocommerce-credentials
 supabase functions deploy update-specific-order-status
 supabase functions deploy fetch-gmail-threads
 supabase functions deploy calculate-profits-for-all-orders
 supabase functions deploy fix-complete-status
+supabase functions deploy legacy-maintenance
 ```
 
 Then set edge function secrets:
@@ -80,6 +86,8 @@ supabase secrets set SENDGRID_API_KEY=...
 supabase secrets set SENDGRID_FROM_EMAIL=info@vianovatours.com
 supabase secrets set SENDGRID_FROM_NAME="Via Nova Tours"
 supabase secrets set OPENAI_API_KEY=...
+supabase secrets set EMAIL_WEBHOOK_SECRET=...
+supabase secrets set WOOCOMMERCE_WEBHOOK_SECRET=...
 ```
 
 ## 2) Frontend setup (local)
@@ -121,3 +129,4 @@ Vercel will use:
 - Some operational automations (WooCommerce/Gmail sync logic) are project-specific and were added as safe starter stubs in Supabase functions.
 - You can migrate business logic from legacy `functions/*.ts` (Base44 implementation) into `supabase/functions/*` progressively.
 - The frontend now fails gracefully when a backend function is not yet implemented.
+- Legacy function names can route through `legacy-maintenance` automatically. For production use, prefer deploying dedicated edge functions with the kebab-case names.
