@@ -15,6 +15,12 @@ const LEGACY_FUNCTION_NAME_MAP = {
   migrateWooCommerceCredentials: "migrate-woocommerce-credentials",
   calculateProfitsForAllOrders: "calculate-profits-for-all-orders",
   fixCompleteStatus: "fix-complete-status",
+  wooCommerceWebhook: "woo-commerce-webhook",
+  generateSitemap: "generate-sitemap",
+  generateRobotsTxt: "generate-robots-txt",
+  sendgridWebhook: "sendgrid-webhook",
+  logEmailCommunication: "log-email-communication",
+  legacyMaintenance: "legacy-maintenance",
   InvokeLLM: "invoke-llm",
 };
 
@@ -76,6 +82,22 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
   }
 
   const tried = candidates.join(", ");
+  if (legacyName !== "legacyMaintenance") {
+    const { data, error } = await client.functions.invoke("legacy-maintenance", {
+      body: {
+        functionName: legacyName,
+        payload: payload ?? {},
+      },
+    });
+
+    if (!error) {
+      return {
+        data,
+        functionName: "legacy-maintenance",
+      };
+    }
+  }
+
   throw new Error(
     `Function "${legacyName}" is not deployed in Supabase. Tried: ${tried}.`
   );
