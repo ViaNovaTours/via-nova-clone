@@ -7,9 +7,18 @@ type MaintenanceRequest = {
   payload?: Record<string, unknown>;
 };
 
-const invokeEdge = async (functionName: string, payload: unknown) => {
+const invokeEdge = async (
+  functionName: string,
+  payload: unknown,
+  authorization?: string | null
+) => {
   const { data, error } = await supabaseAdmin.functions.invoke(functionName, {
     body: payload ?? {},
+    headers: authorization
+      ? {
+          authorization,
+        }
+      : undefined,
   });
   if (error) {
     throw new Error(`Failed invoking ${functionName}: ${error.message}`);
@@ -223,7 +232,8 @@ const consolidateTours = async (payload: Record<string, unknown>) => {
 
 const runKnownOperation = async (
   functionName: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  authorization?: string | null
 ) => {
   switch (functionName) {
     case "migrateStatusesToTags":
@@ -240,9 +250,9 @@ const runKnownOperation = async (
     case "consolidateTours":
       return consolidateTours(payload);
     case "verifyFailedOrders":
-      return invokeEdge("update-specific-order-status", payload);
+      return invokeEdge("update-specific-order-status", payload, authorization);
     case "verifyUnprocessedOrders":
-      return invokeEdge("update-specific-order-status", payload);
+      return invokeEdge("update-specific-order-status", payload, authorization);
     case "testGoogleDriveAuth":
       return {
         success: true,
@@ -269,6 +279,7 @@ Deno.serve(async (req) => {
 
   try {
     const body: MaintenanceRequest = await req.json().catch(() => ({}));
+    const authorization = req.headers.get("authorization");
     const functionName = String(body.functionName || "").trim();
     const payload = (body.payload || {}) as Record<string, unknown>;
     if (!functionName) {
@@ -302,7 +313,7 @@ Deno.serve(async (req) => {
 
     const delegated = delegatedMap[functionName];
     if (delegated) {
-      const data = await invokeEdge(delegated, payload);
+      const data = await invokeEdge(delegated, payload, authorization);
       return jsonResponse({
         success: true,
         delegated_to: delegated,
@@ -310,7 +321,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const known = await runKnownOperation(functionName, payload);
+    const known = await runKnownOperation(functionName, payload, authorization);
     if (known) {
       return jsonResponse(known);
     }

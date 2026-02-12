@@ -91,6 +91,11 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
     });
 
     if (!error) {
+      if (data?.success === false && data?.error) {
+        throw new Error(
+          `Function "${legacyName}" failed via "legacy-maintenance": ${data.error}`
+        );
+      }
       return {
         data,
         functionName: "legacy-maintenance",
