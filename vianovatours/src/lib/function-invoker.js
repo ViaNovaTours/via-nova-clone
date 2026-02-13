@@ -118,10 +118,10 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
     client.functions.setAuth(gatewayToken);
   }
 
-  const invokeWithHeaders = async (functionName, body) =>
+  const invokeWithHeaders = async (functionName, body, includeUserJwt = true) =>
     client.functions.invoke(functionName, {
       body,
-      headers: accessToken
+      headers: includeUserJwt && accessToken
         ? {
             "x-user-jwt": accessToken,
           }
@@ -129,7 +129,20 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
     });
 
   for (const functionName of candidates) {
-    let { data, error } = await invokeWithHeaders(functionName, payload ?? {});
+    let { data, error } = await invokeWithHeaders(
+      functionName,
+      payload ?? {},
+      true
+    );
+
+    if (
+      error &&
+      /Failed to send a request to the Edge Function/i.test(error?.message || "")
+    ) {
+      // Some functions may not yet allow x-user-jwt in CORS.
+      // Retry without custom headers to avoid transport-level failure.
+      ({ data, error } = await invokeWithHeaders(functionName, payload ?? {}, false));
+    }
 
     if (error) {
       const message = `${error?.message || ""} ${error?.details || ""}`;
