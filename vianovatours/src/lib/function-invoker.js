@@ -117,6 +117,7 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
       headers: accessToken
         ? {
             Authorization: `Bearer ${accessToken}`,
+            authorization: `Bearer ${accessToken}`,
           }
         : undefined,
     });
@@ -165,6 +166,7 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
       headers: accessToken
         ? {
             Authorization: `Bearer ${accessToken}`,
+            authorization: `Bearer ${accessToken}`,
           }
         : undefined,
     });
