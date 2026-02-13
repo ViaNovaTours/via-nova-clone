@@ -100,11 +100,46 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
   const client = getSupabaseClient();
   const candidates = getFunctionCandidates(legacyName);
   let lastError = null;
+  let accessToken = null;
+
+  try {
+    const {
+      data: { session },
+    } = await client.auth.getSession();
+    accessToken = session?.access_token || null;
+  } catch (error) {
+    // Continue without explicit token; fallback to client defaults.
+  }
+
+  const invokeCandidate = async (functionName) =>
+    client.functions.invoke(functionName, {
+      body: payload ?? {},
+      headers: accessToken
+        ? {
+            Authorization: `Bearer ${accessToken}`,
+          }
+        : undefined,
+    });
 
   for (const functionName of candidates) {
-    const { data, error } = await client.functions.invoke(functionName, {
-      body: payload ?? {},
-    });
+    let { data, error } = await invokeCandidate(functionName);
+
+    if (error) {
+      const message = `${error?.message || ""} ${error?.details || ""}`;
+      if (/invalid jwt/i.test(message)) {
+        try {
+          const {
+            data: { session: refreshedSession },
+          } = await client.auth.refreshSession();
+          if (refreshedSession?.access_token) {
+            accessToken = refreshedSession.access_token;
+            ({ data, error } = await invokeCandidate(functionName));
+          }
+        } catch (refreshError) {
+          // Keep original error path below.
+        }
+      }
+    }
 
     if (error) {
       if (isFunctionMissingError(error)) {
@@ -127,6 +162,11 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
         functionName: legacyName,
         payload: payload ?? {},
       },
+      headers: accessToken
+        ? {
+            Authorization: `Bearer ${accessToken}`,
+          }
+        : undefined,
     });
 
     if (!error) {
@@ -139,6 +179,15 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
         data,
         functionName: "legacy-maintenance",
       };
+    }
+  }
+
+  if (lastError) {
+    const message = `${lastError?.message || ""} ${lastError?.details || ""}`;
+    if (/invalid jwt/i.test(message)) {
+      throw new Error(
+        'Supabase rejected the JWT for function calls. Check VITE_SUPABASE_ANON_KEY and ensure you are logged in with a valid Supabase session.'
+      );
     }
   }
 
