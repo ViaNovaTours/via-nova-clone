@@ -62,6 +62,13 @@ const resolveFunctionErrorMessage = async (error) => {
 
   try {
     const json = await response.clone().json();
+    const combinedMessage = `${json?.error || ""} ${json?.message || ""}`.trim();
+    if (/base44-app-id header is required/i.test(combinedMessage)) {
+      return (
+        "This Supabase function is still running legacy Base44 code. " +
+        "Redeploy the function with the migrated Supabase implementation."
+      );
+    }
     if (json?.error) {
       return String(json.error);
     }
