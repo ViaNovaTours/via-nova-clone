@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../_shared/supabase.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
 type MaintenanceRequest = {
   functionName?: string;
@@ -35,6 +36,50 @@ const getRequestToken = (req: Request) => {
   return token.trim();
 };
 
+const getProfileRole = async (userId: string, token: string) => {
+  const { data: adminProfile, error: adminProfileError } = await supabaseAdmin
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!adminProfileError && adminProfile?.role) {
+    return String(adminProfile.role).trim().toLowerCase();
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey =
+    Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+  if (!supabaseUrl || !anonKey) {
+    return null;
+  }
+
+  const userScopedClient = createClient(supabaseUrl, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  });
+
+  const { data: userProfile, error: userProfileError } = await userScopedClient
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!userProfileError && userProfile?.role) {
+    return String(userProfile.role).trim().toLowerCase();
+  }
+
+  return null;
+};
+
 const requireAdmin = async (req: Request) => {
   const token = getRequestToken(req);
   if (!token) {
@@ -58,12 +103,7 @@ const requireAdmin = async (req: Request) => {
     typeof metadataRoleRaw === "string" ? metadataRoleRaw.trim().toLowerCase() : null;
 
   if (!role || ["authenticated", "anon", "service_role"].includes(role)) {
-    const { data: profile } = await supabaseAdmin
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle();
-    role = String(profile?.role || "user").trim().toLowerCase();
+    role = (await getProfileRole(user.id, token)) || "user";
   }
 
   if (String(role).toLowerCase() !== "admin") {
