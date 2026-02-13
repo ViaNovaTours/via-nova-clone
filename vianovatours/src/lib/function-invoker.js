@@ -32,8 +32,13 @@ const toKebabCase = (value) =>
     .toLowerCase();
 
 const isFunctionMissingError = (error) => {
+  const status = error?.context?.status || error?.status;
+  if (status === 404) {
+    return true;
+  }
+
   const message = `${error?.message || ""} ${error?.details || ""}`;
-  return /not found|function .* does not exist|404|edge function/i.test(message);
+  return /not found|function .* does not exist|404/i.test(message);
 };
 
 const getFunctionCandidates = (legacyName) => {
@@ -47,13 +52,47 @@ const getFunctionCandidates = (legacyName) => {
   );
 };
 
-const withResponseError = (legacyName, functionName, error) => {
+const resolveFunctionErrorMessage = async (error) => {
+  const fallback = error?.message || "Unknown function invocation error";
+  const response = error?.context;
+
+  if (!response || typeof response.clone !== "function") {
+    return fallback;
+  }
+
+  try {
+    const json = await response.clone().json();
+    if (json?.error) {
+      return String(json.error);
+    }
+    if (json?.message) {
+      return String(json.message);
+    }
+  } catch (jsonError) {
+    // Continue to text fallback.
+  }
+
+  try {
+    const text = await response.clone().text();
+    if (text) {
+      return text.slice(0, 400);
+    }
+  } catch (textError) {
+    // Keep fallback.
+  }
+
+  return fallback;
+};
+
+const withResponseError = async (legacyName, functionName, error) => {
+  const resolvedMessage = await resolveFunctionErrorMessage(error);
   const normalizedError = new Error(
-    `Function "${legacyName}" failed via "${functionName}": ${error.message}`
+    `Function "${legacyName}" failed via "${functionName}": ${resolvedMessage}`
   );
   normalizedError.status = error.status;
   normalizedError.details = error.details;
   normalizedError.hint = error.hint;
+  normalizedError.context = error.context;
   throw normalizedError;
 };
 
@@ -72,7 +111,7 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
         lastError = error;
         continue;
       }
-      withResponseError(legacyName, functionName, error);
+      await withResponseError(legacyName, functionName, error);
     }
 
     return {
