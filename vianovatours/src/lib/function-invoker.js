@@ -100,26 +100,32 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
   const client = getSupabaseClient();
   const candidates = getFunctionCandidates(legacyName);
   let lastError = null;
-  let accessToken = null;
 
-  try {
-    const {
-      data: { session },
-    } = await client.auth.getSession();
-    accessToken = session?.access_token || null;
-  } catch (error) {
-    // Continue without explicit token; fallback to client defaults.
-  }
+  const setFunctionsAuthFromSession = async (tokenOverride = null) => {
+    if (tokenOverride) {
+      client.functions.setAuth(tokenOverride);
+      return tokenOverride;
+    }
+
+    try {
+      const {
+        data: { session },
+      } = await client.auth.getSession();
+      const token = session?.access_token || null;
+      if (token) {
+        client.functions.setAuth(token);
+      }
+      return token;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  let accessToken = await setFunctionsAuthFromSession();
 
   const invokeCandidate = async (functionName) =>
     client.functions.invoke(functionName, {
       body: payload ?? {},
-      headers: accessToken
-        ? {
-            Authorization: `Bearer ${accessToken}`,
-            authorization: `Bearer ${accessToken}`,
-          }
-        : undefined,
     });
 
   for (const functionName of candidates) {
@@ -133,7 +139,9 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
             data: { session: refreshedSession },
           } = await client.auth.refreshSession();
           if (refreshedSession?.access_token) {
-            accessToken = refreshedSession.access_token;
+            accessToken = await setFunctionsAuthFromSession(
+              refreshedSession.access_token
+            );
             ({ data, error } = await invokeCandidate(functionName));
           }
         } catch (refreshError) {
@@ -163,12 +171,6 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
         functionName: legacyName,
         payload: payload ?? {},
       },
-      headers: accessToken
-        ? {
-            Authorization: `Bearer ${accessToken}`,
-            authorization: `Bearer ${accessToken}`,
-          }
-        : undefined,
     });
 
     if (!error) {
