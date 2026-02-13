@@ -35,12 +35,22 @@ const getBearerToken = (req: Request) => {
 };
 
 const getRoleFromMetadata = (user: any) => {
-  return (
-    user?.app_metadata?.role ||
-    user?.user_metadata?.role ||
-    user?.role ||
-    null
-  );
+  const rawRole = user?.app_metadata?.role || user?.user_metadata?.role || null;
+  if (typeof rawRole !== "string") {
+    return null;
+  }
+
+  const normalized = rawRole.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  // Supabase auth role claims are not app authorization roles.
+  if (["authenticated", "anon", "service_role"].includes(normalized)) {
+    return null;
+  }
+
+  return normalized;
 };
 
 const getProfileRole = async (userId: string) => {
@@ -75,7 +85,7 @@ export const getRequestUser = async (req: Request): Promise<AuthContext | null> 
     user: {
       id: rawUser.id,
       email: rawUser.email,
-      role: profileRole || "user",
+      role: String(profileRole || "user").toLowerCase(),
       raw: rawUser,
     },
   };
@@ -105,7 +115,7 @@ export const requireAdmin = async (
     return auth;
   }
 
-  if (auth.context.user.role !== "admin") {
+  if (String(auth.context.user.role).toLowerCase() !== "admin") {
     return {
       ok: false,
       response: jsonResponse(

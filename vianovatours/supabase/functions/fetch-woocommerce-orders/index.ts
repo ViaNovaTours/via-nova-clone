@@ -54,19 +54,20 @@ const requireAdmin = async (req: Request) => {
   }
 
   const user = data.user as any;
+  const metadataRoleRaw = user?.app_metadata?.role || user?.user_metadata?.role;
   let role =
-    user?.app_metadata?.role || user?.user_metadata?.role || user?.role || null;
+    typeof metadataRoleRaw === "string" ? metadataRoleRaw.trim().toLowerCase() : null;
 
-  if (!role) {
+  if (!role || ["authenticated", "anon", "service_role"].includes(role)) {
     const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("role")
       .eq("id", user.id)
       .maybeSingle();
-    role = profile?.role || "user";
+    role = String(profile?.role || "user").trim().toLowerCase();
   }
 
-  if (role !== "admin") {
+  if (String(role).toLowerCase() !== "admin") {
     return {
       ok: false as const,
       response: jsonResponse(
