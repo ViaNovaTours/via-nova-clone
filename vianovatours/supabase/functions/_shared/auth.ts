@@ -10,7 +10,22 @@ export type AuthContext = {
   };
 };
 
+const normalizeToken = (raw: string | null) => {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^bearer\s+/i.test(trimmed)) {
+    return trimmed.replace(/^bearer\s+/i, "").trim() || null;
+  }
+  return trimmed;
+};
+
 const getBearerToken = (req: Request) => {
+  const forwardedUserToken = normalizeToken(req.headers.get("x-user-jwt"));
+  if (forwardedUserToken) {
+    return forwardedUserToken;
+  }
+
   const authorization = req.headers.get("authorization") || "";
   const [scheme, token] = authorization.split(" ");
   if (scheme?.toLowerCase() !== "bearer" || !token) {

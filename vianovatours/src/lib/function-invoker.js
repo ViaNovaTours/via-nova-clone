@@ -101,35 +101,35 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
   const candidates = getFunctionCandidates(legacyName);
   let lastError = null;
 
-  const setFunctionsAuthFromSession = async (tokenOverride = null) => {
-    if (tokenOverride) {
-      client.functions.setAuth(tokenOverride);
-      return tokenOverride;
-    }
-
+  const getAccessToken = async () => {
     try {
       const {
         data: { session },
       } = await client.auth.getSession();
-      const token = session?.access_token || null;
-      if (token) {
-        client.functions.setAuth(token);
-      }
-      return token;
+      return session?.access_token || null;
     } catch (error) {
       return null;
     }
   };
 
-  let accessToken = await setFunctionsAuthFromSession();
+  let accessToken = await getAccessToken();
+  const gatewayToken = env.supabaseAnonKey || accessToken || null;
+  if (gatewayToken) {
+    client.functions.setAuth(gatewayToken);
+  }
 
-  const invokeCandidate = async (functionName) =>
+  const invokeWithHeaders = async (functionName, body) =>
     client.functions.invoke(functionName, {
-      body: payload ?? {},
+      body,
+      headers: accessToken
+        ? {
+            "x-user-jwt": accessToken,
+          }
+        : undefined,
     });
 
   for (const functionName of candidates) {
-    let { data, error } = await invokeCandidate(functionName);
+    let { data, error } = await invokeWithHeaders(functionName, payload ?? {});
 
     if (error) {
       const message = `${error?.message || ""} ${error?.details || ""}`;
@@ -139,10 +139,11 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
             data: { session: refreshedSession },
           } = await client.auth.refreshSession();
           if (refreshedSession?.access_token) {
-            accessToken = await setFunctionsAuthFromSession(
-              refreshedSession.access_token
-            );
-            ({ data, error } = await invokeCandidate(functionName));
+            accessToken = refreshedSession.access_token;
+            ({ data, error } = await invokeWithHeaders(
+              functionName,
+              payload ?? {}
+            ));
           }
         } catch (refreshError) {
           // Keep original error path below.
@@ -166,11 +167,9 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
 
   const tried = candidates.join(", ");
   if (legacyName !== "legacyMaintenance") {
-    const { data, error } = await client.functions.invoke("legacy-maintenance", {
-      body: {
-        functionName: legacyName,
-        payload: payload ?? {},
-      },
+    const { data, error } = await invokeWithHeaders("legacy-maintenance", {
+      functionName: legacyName,
+      payload: payload ?? {},
     });
 
     if (!error) {
