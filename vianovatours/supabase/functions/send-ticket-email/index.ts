@@ -1,10 +1,25 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 
 type Payload = {
   orderId?: string;
   downloadLink?: string;
 };
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-user-jwt, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
+const jsonResponse = (payload: unknown, status = 200) =>
+  new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+    },
+  });
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -15,6 +30,91 @@ const fromName = Deno.env.get("SENDGRID_FROM_NAME") || "Via Nova Tours";
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false },
 });
+
+const normalizeBearer = (raw: string | null) => {
+  if (!raw) return null;
+  const value = raw.trim();
+  if (!value) return null;
+  if (value.toLowerCase().startsWith("bearer ")) {
+    const token = value.slice(7).trim();
+    return token || null;
+  }
+  return value;
+};
+
+const getRequestToken = (req: Request) => {
+  const forwarded = normalizeBearer(req.headers.get("x-user-jwt"));
+  if (forwarded) return forwarded;
+
+  const authorization = req.headers.get("authorization") || "";
+  const [scheme, token] = authorization.split(" ");
+  if (scheme?.toLowerCase() !== "bearer" || !token) {
+    return null;
+  }
+  return token;
+};
+
+const getAppRole = (user: any) => {
+  const raw = user?.app_metadata?.role || user?.user_metadata?.role || null;
+  if (typeof raw !== "string") return null;
+  const role = raw.trim().toLowerCase();
+  if (!role) return null;
+  if (["authenticated", "anon", "service_role"].includes(role)) {
+    return null;
+  }
+  return role;
+};
+
+const getProfileRole = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) return null;
+  const role = String(data?.role || "").trim().toLowerCase();
+  return role || null;
+};
+
+const requireStaffOrAdmin = async (req: Request) => {
+  const token = getRequestToken(req);
+  if (!token) {
+    return {
+      ok: false as const,
+      response: jsonResponse({ success: false, error: "Unauthorized" }, 401),
+    };
+  }
+
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) {
+    return {
+      ok: false as const,
+      response: jsonResponse({ success: false, error: "Unauthorized" }, 401),
+    };
+  }
+
+  const role = getAppRole(data.user) || (await getProfileRole(data.user.id));
+  if (!["admin", "staff"].includes(String(role || "").toLowerCase())) {
+    return {
+      ok: false as const,
+      response: jsonResponse(
+        { success: false, error: "Forbidden: staff/admin access required" },
+        403
+      ),
+    };
+  }
+
+  return {
+    ok: true as const,
+    context: {
+      user: {
+        id: data.user.id,
+        email: data.user.email || null,
+        role: String(role || "staff"),
+      },
+    },
+  };
+};
 
 const sendEmail = async ({
   to,
@@ -50,6 +150,13 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  if (req.method !== "POST") {
+    return jsonResponse(
+      { success: false, error: "Method not allowed. Use POST." },
+      405
+    );
+  }
+
   if (!supabaseUrl || !serviceRoleKey) {
     return jsonResponse(
       { success: false, error: "Missing Supabase service role configuration" },
@@ -64,27 +171,28 @@ Deno.serve(async (req) => {
     );
   }
 
+  const auth = await requireStaffOrAdmin(req);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
     const payload = (await req.json()) as Payload;
 
     if (!payload.orderId) {
-      return jsonResponse(
-        { success: false, error: "orderId is required" },
-        400
-      );
+      return jsonResponse({ success: false, error: "orderId is required" }, 400);
     }
 
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .select("*")
       .eq("order_id", payload.orderId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (orderError) {
-      return jsonResponse(
-        { success: false, error: orderError.message },
-        500
-      );
+      return jsonResponse({ success: false, error: orderError.message }, 500);
     }
 
     if (!order) {
@@ -113,6 +221,7 @@ Deno.serve(async (req) => {
       ? `<p><a href="${payload.downloadLink}" target="_blank" rel="noopener noreferrer">Download your ticket</a></p>`
       : "";
 
+    const subject = `Your ${order.tour || "tour"} Ticket is Ready`;
     const html = `
       <h2>Your ${order.tour || "tour"} tickets</h2>
       <p>Hi ${order.first_name || "there"},</p>
@@ -129,7 +238,7 @@ Deno.serve(async (req) => {
 
     await sendEmail({
       to: order.email,
-      subject: `Your ${order.tour || "tour"} Ticket is Ready`,
+      subject,
       html,
     });
 
@@ -137,18 +246,29 @@ Deno.serve(async (req) => {
       type: "ticket_email",
       sent_at: new Date().toISOString(),
       to: order.email,
-      subject: `Your ${order.tour || "tour"} Ticket is Ready`,
+      subject,
+      sent_by: auth.context.user.email || auth.context.user.id,
     };
     const existingComms = Array.isArray(order.email_communications)
       ? order.email_communications
       : [];
 
-    await supabase
+    const { error: commsError } = await supabase
       .from("orders")
       .update({
         email_communications: [...existingComms, communicationEntry],
       })
       .eq("id", order.id);
+
+    if (commsError) {
+      return jsonResponse(
+        {
+          success: false,
+          error: `Email sent but failed to log communication: ${commsError.message}`,
+        },
+        500
+      );
+    }
 
     return jsonResponse({
       success: true,
