@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [selectedOrders, setSelectedOrders] = useState(new Set());
   const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkTagAction, setBulkTagAction] = useState("");
   const [isUpdatingBulk, setIsUpdatingBulk] = useState(false);
   const [needsMigration, setNeedsMigration] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
@@ -305,22 +306,83 @@ export default function Dashboard() {
   };
 
   const handleBulkStatusChange = async () => {
-    if (selectedOrders.size === 0 || !bulkStatus) return;
+    if (selectedOrders.size === 0 || (!bulkStatus && !bulkTagAction)) return;
+
+    const applyTagAction = (currentTags, action) => {
+      const nextTags = Array.isArray(currentTags) ? [...currentTags] : [];
+      const tagSet = new Set(nextTags);
+
+      switch (action) {
+        case "add:reserved_date":
+          tagSet.add("reserved_date");
+          break;
+        case "add:awaiting_reply":
+          tagSet.add("awaiting_reply");
+          break;
+        case "remove:reserved_date":
+          tagSet.delete("reserved_date");
+          break;
+        case "remove:awaiting_reply":
+          tagSet.delete("awaiting_reply");
+          break;
+        case "clear":
+          return [];
+        default:
+          return nextTags;
+      }
+
+      return Array.from(tagSet);
+    };
     
     setIsUpdatingBulk(true);
     try {
-      const updatePromises = Array.from(selectedOrders).map(orderId => 
-        Order.update(orderId, { status: bulkStatus })
-      );
+      const updatePromises = Array.from(selectedOrders).map(orderId => {
+        const currentOrder = orders.find(o => o.id === orderId);
+        const updates = {};
+
+        if (bulkStatus) {
+          updates.status = bulkStatus;
+        }
+
+        if (bulkTagAction) {
+          const currentTags = currentOrder?.tags || [];
+          const nextTags = applyTagAction(currentTags, bulkTagAction);
+          if (JSON.stringify(nextTags) !== JSON.stringify(currentTags)) {
+            updates.tags = nextTags;
+          }
+        }
+
+        if (Object.keys(updates).length === 0) {
+          return Promise.resolve(null);
+        }
+
+        return Order.update(orderId, updates);
+      });
       await Promise.all(updatePromises);
       
       await loadOrders();
       setSelectedOrders(new Set());
       setBulkStatus("");
+      setBulkTagAction("");
+
+      const summary = [];
+      if (bulkStatus) {
+        summary.push(`status → ${bulkStatus}`);
+      }
+      if (bulkTagAction) {
+        const tagLabelMap = {
+          "add:reserved_date": "add tag: Reserved Date",
+          "add:awaiting_reply": "add tag: Awaiting Reply",
+          "remove:reserved_date": "remove tag: Reserved Date",
+          "remove:awaiting_reply": "remove tag: Awaiting Reply",
+          clear: "clear all tags",
+        };
+        summary.push(tagLabelMap[bulkTagAction] || "update tags");
+      }
       
       toast({
         title: "Bulk Update Complete ✅",
-        description: `Updated ${selectedOrders.size} orders to ${bulkStatus}`,
+        description: `Updated ${selectedOrders.size} orders (${summary.join(", ")})`,
         duration: 4000,
       });
     } catch (error) {
@@ -490,17 +552,33 @@ export default function Dashboard() {
                   <SelectItem value="failed">Failed</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={bulkTagAction} onValueChange={setBulkTagAction}>
+                <SelectTrigger className="w-full sm:w-56 text-xs md:text-sm bg-slate-600 border-slate-500 text-white">
+                  <SelectValue placeholder="Update tags..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="add:reserved_date">Add tag: Reserved Date</SelectItem>
+                  <SelectItem value="add:awaiting_reply">Add tag: Awaiting Reply</SelectItem>
+                  <SelectItem value="remove:reserved_date">Remove tag: Reserved Date</SelectItem>
+                  <SelectItem value="remove:awaiting_reply">Remove tag: Awaiting Reply</SelectItem>
+                  <SelectItem value="clear">Clear all tags</SelectItem>
+                </SelectContent>
+              </Select>
               <div className="flex gap-2 w-full sm:w-auto">
                 <Button
                   onClick={handleBulkStatusChange}
-                  disabled={!bulkStatus || isUpdatingBulk}
+                  disabled={(!bulkStatus && !bulkTagAction) || isUpdatingBulk}
                   size="sm"
                   className="bg-emerald-600 hover:bg-emerald-700 flex-1 sm:flex-none text-xs md:text-sm text-white"
                 >
                   {isUpdatingBulk ? 'Updating...' : 'Apply'}
                 </Button>
                 <Button
-                  onClick={() => setSelectedOrders(new Set())}
+                  onClick={() => {
+                    setSelectedOrders(new Set());
+                    setBulkStatus("");
+                    setBulkTagAction("");
+                  }}
                   variant="ghost"
                   size="sm"
                   className="text-xs md:text-sm text-slate-300 hover:text-white hover:bg-slate-600"
