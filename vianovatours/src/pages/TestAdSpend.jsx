@@ -40,7 +40,14 @@ export default function TestAdSpendPage() {
   }, []);
 
   const webhookSecret = "YOUR_AD_SPEND_WEBHOOK_SECRET"; // User will replace this
-  const webhookUrl = `${window.location.origin}/functions/logAdSpend`;
+  const configuredFunctionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const functionsBaseUrl = configuredFunctionsUrl
+    ? configuredFunctionsUrl.replace(/\/$/, "")
+    : supabaseUrl
+      ? `${supabaseUrl}/functions/v1`
+      : `${window.location.origin}/functions/v1`;
+  const webhookUrl = `${functionsBaseUrl}/log-ad-spend`;
 
   const testWebhook = async () => {
     setIsTesting(true);
@@ -279,7 +286,7 @@ export default function TestAdSpendPage() {
             <ul className="list-disc ml-6 space-y-1 text-slate-700">
               <li>Body type: <strong>Raw</strong></li>
               <li>Make sure tour_name matches exactly (e.g., "Pena Palace" not "Pena Palace Tour")</li>
-              <li>Cost in micros? The webhook auto-converts values over 10000</li>
+              <li>Use a normal decimal for cost (example: 125.40)</li>
             </ul>
           </div>
 
@@ -287,9 +294,9 @@ export default function TestAdSpendPage() {
             <h4 className="font-semibold">Step 4: Check Function Logs</h4>
             <p>After sending from Make.com:</p>
             <ul className="list-disc ml-6 space-y-1 text-slate-700">
-              <li>Go to <strong>Dashboard → Code → Functions → logAdSpend</strong></li>
+              <li>Go to <strong>Dashboard → Edge Functions → log-ad-spend</strong></li>
               <li>Click <strong>"Logs"</strong> tab</li>
-              <li>You'll see detailed output with emojis: ✅ success, ❌ errors, 🔄 conversions</li>
+              <li>Confirm each run returns success with created/updated counts</li>
             </ul>
           </div>
         </CardContent>

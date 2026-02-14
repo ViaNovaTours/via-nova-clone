@@ -67,6 +67,7 @@ supabase functions deploy send-ticket-email
 supabase functions deploy send-reserved-email
 supabase functions deploy sendgrid-webhook
 supabase functions deploy log-email-communication
+supabase functions deploy log-ad-spend
 supabase functions deploy woo-commerce-webhook
 supabase functions deploy fetch-woocommerce-orders
 supabase functions deploy migrate-woocommerce-credentials
@@ -88,7 +89,34 @@ supabase secrets set SENDGRID_FROM_NAME="Via Nova Tours"
 supabase secrets set OPENAI_API_KEY=...
 supabase secrets set EMAIL_WEBHOOK_SECRET=...
 supabase secrets set WOOCOMMERCE_WEBHOOK_SECRET=...
+supabase secrets set LOG_AD_SPEND_WEBHOOK_SECRET=...
+supabase secrets set GOOGLE_DRIVE_RECEIPTS_FOLDER_ID=...
 ```
+
+### Daily ad spend webhook (Make/Zapier)
+
+Use:
+
+`https://<your-project-ref>.supabase.co/functions/v1/log-ad-spend`
+
+Send `POST` JSON and include your webhook secret in either:
+
+- `x-webhook-secret: <LOG_AD_SPEND_WEBHOOK_SECRET>`, or
+- `Authorization: Bearer <LOG_AD_SPEND_WEBHOOK_SECRET>`
+
+Payload example:
+
+```json
+{
+  "date": "2026-02-12",
+  "tour_name": "Neuschwanstein Castle",
+  "source": "meta",
+  "cost": 129.40,
+  "currency": "USD"
+}
+```
+
+The function updates an existing row when `date + tour_name + source` already exists, or inserts a new row otherwise.
 
 ## 2) Frontend setup (local)
 

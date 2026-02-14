@@ -19,3 +19,50 @@ port = 54323
 [functions]
 verify_jwt = false
 
+[functions.fetch-woocommerce-orders]
+verify_jwt = false
+
+[functions.legacy-maintenance]
+verify_jwt = false
+
+[functions.migrate-woocommerce-credentials]
+verify_jwt = false
+
+[functions.update-specific-order-status]
+verify_jwt = false
+
+[functions.fetch-gmail-threads]
+verify_jwt = false
+
+[functions.calculate-profits-for-all-orders]
+verify_jwt = false
+
+[functions.fix-complete-status]
+verify_jwt = false
+
+[functions.woo-commerce-webhook]
+verify_jwt = false
+
+[functions.log-email-communication]
+verify_jwt = false
+
+[functions.sendgrid-webhook]
+verify_jwt = false
+
+[functions.generate-sitemap]
+verify_jwt = false
+
+[functions.generate-robots-txt]
+verify_jwt = false
+
+[functions.send-ticket-email]
+verify_jwt = false
+
+[functions.send-reserved-email]
+verify_jwt = false
+
+[functions.upload-to-google-drive]
+verify_jwt = false
+
+[functions.log-ad-spend]
+verify_jwt = false
