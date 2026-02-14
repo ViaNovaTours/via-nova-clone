@@ -135,6 +135,13 @@ Deno.serve(async (req) => {
             .from("orders")
             .insert(transformed);
           if (insertError) {
+            if (insertError.code === "23505") {
+              // Another sync run inserted this row concurrently.
+              warnings.push(
+                `${site.site_name}: duplicate skipped for order ${wooOrder.id}`
+              );
+              continue;
+            }
             errors.push(
               `${site.site_name}: failed to import order ${wooOrder.id} (${insertError.message})`
             );
@@ -214,7 +221,7 @@ Deno.serve(async (req) => {
 
     const { data: postImportOrders, error: reloadError } = await supabaseAdmin
       .from("orders")
-      .select("id,order_id,created_at");
+      .select("id,order_id,created_at,updated_at,purchase_date,tags");
     if (reloadError) {
       warnings.push(`Duplicate cleanup skipped: ${reloadError.message}`);
     } else {
@@ -227,11 +234,21 @@ Deno.serve(async (req) => {
 
       for (const [orderId, group] of grouped.entries()) {
         if (group.length <= 1) continue;
-        const sorted = [...group].sort(
-          (a, b) =>
-            new Date(a.created_at || 0).getTime() -
-            new Date(b.created_at || 0).getTime()
-        );
+        const sorted = [...group].sort((a, b) => {
+          const tagsA = Array.isArray(a.tags) ? a.tags.length : 0;
+          const tagsB = Array.isArray(b.tags) ? b.tags.length : 0;
+          if (tagsA !== tagsB) {
+            return tagsB - tagsA;
+          }
+
+          const tsA = new Date(
+            a.updated_at || a.purchase_date || a.created_at || 0
+          ).getTime();
+          const tsB = new Date(
+            b.updated_at || b.purchase_date || b.created_at || 0
+          ).getTime();
+          return tsB - tsA;
+        });
         const toDelete = sorted.slice(1);
         for (const duplicate of toDelete) {
           const { error: deleteError } = await supabaseAdmin

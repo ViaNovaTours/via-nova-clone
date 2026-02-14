@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Order } from "@/entities/Order";
 import { WooCommerceCredentials } from "@/entities/WooCommerceCredentials";
 import { Tour } from "@/entities/Tour";
@@ -40,21 +40,63 @@ export default function Dashboard() {
   const [hasStatusBug, setHasStatusBug] = useState(false);
   const [isFixingStatus, setIsFixingStatus] = useState(false);
   const [siteUrls, setSiteUrls] = useState({});
+  const syncInFlightRef = useRef(false);
   const { toast } = useToast();
 
-  const loadOrders = useCallback(async () => {
-    setIsLoading(true);
+  const dedupeOrders = (sourceOrders = []) => {
+    const byOrderKey = new Map();
+
+    for (const order of sourceOrders) {
+      const key = String(order?.order_id || order?.id || "");
+      if (!key) continue;
+
+      if (!byOrderKey.has(key)) {
+        byOrderKey.set(key, order);
+        continue;
+      }
+
+      const existing = byOrderKey.get(key);
+      const existingTagsCount = Array.isArray(existing?.tags) ? existing.tags.length : 0;
+      const currentTagsCount = Array.isArray(order?.tags) ? order.tags.length : 0;
+
+      const existingTimestamp = new Date(
+        existing?.updated_at || existing?.purchase_date || existing?.created_at || 0
+      ).getTime();
+      const currentTimestamp = new Date(
+        order?.updated_at || order?.purchase_date || order?.created_at || 0
+      ).getTime();
+
+      const shouldReplace =
+        currentTagsCount > existingTagsCount ||
+        (currentTagsCount === existingTagsCount && currentTimestamp > existingTimestamp);
+
+      if (shouldReplace) {
+        byOrderKey.set(key, order);
+      }
+    }
+
+    return Array.from(byOrderKey.values());
+  };
+
+  const loadOrders = useCallback(async ({ showLoader = true } = {}) => {
+    if (showLoader) {
+      setIsLoading(true);
+    }
     try {
-      const data = await Order.list(); 
-      setOrders(data);
+      const data = await Order.list();
+      const dedupedOrders = dedupeOrders(data || []);
+      setOrders(dedupedOrders);
       
       // Check for status bug
-      const hasComplete = data.some(o => o.status === 'complete');
+      const hasComplete = dedupedOrders.some(o => o.status === 'complete');
       setHasStatusBug(hasComplete);
     } catch (error) {
       console.error("Error loading orders:", error);
+    } finally {
+      if (showLoader) {
+        setIsLoading(false);
+      }
     }
-    setIsLoading(false);
   }, []);
   
   useEffect(() => {
@@ -69,7 +111,7 @@ export default function Dashboard() {
             }
             setIsCheckingAuth(false);
             
-            await loadOrders();
+            await loadOrders({ showLoader: true });
             
             // Load WooCommerce site URLs for order links
             const credentials = await WooCommerceCredentials.list();
@@ -145,12 +187,14 @@ export default function Dashboard() {
   // Auto-sync every 1 minute for near-instant updates
   useEffect(() => {
     const autoSync = async () => {
+      if (syncInFlightRef.current) return;
+      syncInFlightRef.current = true;
       setIsAutoSyncing(true);
       try {
         const { data } = await fetchWooCommerceOrders();
         
         if (data.success) {
-          await loadOrders();
+          await loadOrders({ showLoader: false });
           setLastSyncTime(new Date());
           
           // Show toast notification for new orders
@@ -169,8 +213,10 @@ export default function Dashboard() {
         }
       } catch (error) {
         console.error("Auto-sync failed:", error);
+      } finally {
+        syncInFlightRef.current = false;
+        setIsAutoSyncing(false);
       }
-      setIsAutoSyncing(false);
     };
 
     // Run initial sync after 5 seconds (to not interfere with page load)

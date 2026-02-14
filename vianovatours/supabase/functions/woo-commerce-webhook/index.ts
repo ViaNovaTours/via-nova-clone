@@ -155,6 +155,15 @@ Deno.serve(async (req) => {
       .insert(transformedOrder);
 
     if (insertError) {
+      if (insertError.code === "23505") {
+        return new Response(
+          `Order ${externalOrderId} already exists (duplicate webhook ignored).`,
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "text/plain" },
+          }
+        );
+      }
       return new Response(
         `Failed to create order ${externalOrderId}: ${insertError.message}`,
         {
