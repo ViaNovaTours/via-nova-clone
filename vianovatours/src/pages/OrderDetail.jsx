@@ -98,9 +98,6 @@ export default function OrderDetail() {
   const handleOrderUpdate = async (updates) => {
     try {
       const updated = await base44.entities.Order.update(order.id, updates);
-      if (!updated?.id) {
-        throw new Error("Order update did not return a persisted row.");
-      }
       await loadOrder({ showLoader: false });
       return updated;
     } catch (error) {

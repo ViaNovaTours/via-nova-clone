@@ -162,7 +162,7 @@ export const createEntityApi = (entityName) => ({
   async update(id, payload) {
     const safePayload = removeUndefined(payload);
     return runWithTableFallback(entityName, async (queryBuilder) =>
-      queryBuilder.update(safePayload).eq("id", id).select("*").single()
+      queryBuilder.update(safePayload).eq("id", id).select("*").maybeSingle()
     );
   },
 
