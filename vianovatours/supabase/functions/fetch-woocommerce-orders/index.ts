@@ -80,7 +80,7 @@ const getProfileRole = async (userId: string) => {
   return role || null;
 };
 
-const requireAdmin = async (req: Request) => {
+const requireStaffOrAdmin = async (req: Request) => {
   const token = getRequestToken(req);
   if (!token) {
     return {
@@ -98,11 +98,11 @@ const requireAdmin = async (req: Request) => {
   }
 
   const role = getAppRole(data.user) || (await getProfileRole(data.user.id));
-  if (role !== "admin") {
+  if (!["admin", "staff"].includes(String(role || "").toLowerCase())) {
     return {
       ok: false as const,
       response: jsonResponse(
-        { success: false, error: "Forbidden: admin access required" },
+        { success: false, error: "Forbidden: staff/admin access required" },
         403
       ),
     };
@@ -114,7 +114,7 @@ const requireAdmin = async (req: Request) => {
       user: {
         id: data.user.id,
         email: data.user.email,
-        role: "admin",
+        role: String(role || "staff"),
       },
     },
   };
@@ -387,9 +387,9 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  const admin = await requireAdmin(req);
-  if (!admin.ok) {
-    return admin.response;
+  const auth = await requireStaffOrAdmin(req);
+  if (!auth.ok) {
+    return auth.response;
   }
 
   let totalImported = 0;

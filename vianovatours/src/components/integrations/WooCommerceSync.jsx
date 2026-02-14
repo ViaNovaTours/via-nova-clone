@@ -46,7 +46,7 @@ export default function WooCommerceSync({ onSyncComplete }) {
             console.error("Sync failed:", error);
             toast({
                 title: "Sync Error",
-                description: "Failed to connect to sync service",
+                description: error?.message || "Failed to connect to sync service",
                 variant: "destructive",
             });
         }
