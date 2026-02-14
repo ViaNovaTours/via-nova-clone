@@ -52,14 +52,20 @@ export default function ToursPage() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [currentUser, toursData, credsData] = await Promise.all([
+        const [currentUser, toursData] = await Promise.all([
           base44.auth.me(),
           base44.entities.Tour.list(),
-          base44.entities.WooCommerceCredentials.list()
         ]);
         setUser(currentUser);
         setTours(toursData);
-        setCredentials(credsData);
+
+        try {
+          const credsData = await base44.entities.WooCommerceCredentials.list();
+          setCredentials(credsData || []);
+        } catch (credentialsError) {
+          // Staff may not have credentials-table access; tours page should still load.
+          setCredentials([]);
+        }
       } catch (error) {
         console.error("Error loading tours:", error);
       }
@@ -73,7 +79,9 @@ export default function ToursPage() {
     return credentials.find(c => c.site_name === tourName || c.tour_name === tourName);
   };
 
-  const isAdmin = user?.role === 'admin';
+  const canManageTours = ["admin", "staff"].includes(
+    String(user?.role || "").toLowerCase()
+  );
 
   const handleEdit = (tour) => {
     const wooInfo = getWooCommerceInfo(tour.woocommerce_site_name);
@@ -279,7 +287,7 @@ export default function ToursPage() {
                   <TableHead className="text-white font-semibold">Notes</TableHead>
                   <TableHead className="text-white font-semibold">PDF Preset</TableHead>
                   <TableHead className="text-white font-semibold">Email Recommendations</TableHead>
-                  {isAdmin && <TableHead className="text-white font-semibold">Actions</TableHead>}
+                  {canManageTours && <TableHead className="text-white font-semibold">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -305,7 +313,7 @@ export default function ToursPage() {
                               <ImageIcon className="w-6 h-6 text-slate-400" />
                             </div>
                           )}
-                          {isAdmin && (
+                          {canManageTours && (
                             <>
                               <input
                                 id={`upload-${tour.id}`}
@@ -586,7 +594,7 @@ export default function ToursPage() {
                           )}
                         </Button>
                       </TableCell>
-                      {isAdmin && (
+                      {canManageTours && (
                         <TableCell>
                           {isEditing ? (
                             <div className="flex gap-2">
@@ -638,7 +646,7 @@ export default function ToursPage() {
           <DialogHeader>
             <DialogTitle>Tour Notes</DialogTitle>
             <DialogDescription>
-              Add or edit notes for this tour. These notes are only visible to admins.
+              Add or edit notes for this tour. These notes are visible to staff and admins.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">

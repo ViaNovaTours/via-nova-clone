@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,9 +19,11 @@ import {
   AlertTriangle,
   UserX,
   Pause,
-  UserCheck
+  UserCheck,
+  Loader2
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useToast } from "@/components/ui/use-toast";
 
 const statusConfig = {
   unprocessed: { 
@@ -91,10 +93,16 @@ const vaNames = ["Kat", "Edelyn", "Ben"];
 
 export default function OrderActions({ order, onUpdate }) {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSavingTags, setIsSavingTags] = useState(false);
   const [emailMessage, setEmailMessage] = useState("");
   const [newStatus, setNewStatus] = useState(order.status);
   const [fulfilledBy, setFulfilledBy] = useState(order.fulfilled_by || "");
   const [selectedTags, setSelectedTags] = useState(order.tags || []);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    setSelectedTags(order.tags || []);
+  }, [order.tags]);
 
   const handleStatusChange = async (status) => {
     setIsProcessing(true);
@@ -143,21 +151,29 @@ export default function OrderActions({ order, onUpdate }) {
 
   const currentStatusInfo = statusConfig[order.status] || statusConfig.unprocessed;
 
-  const toggleTag = (tag) => {
-    const newTags = selectedTags.includes(tag)
-      ? selectedTags.filter(t => t !== tag)
-      : [...selectedTags, tag];
-    setSelectedTags(newTags);
-  };
+  const toggleTag = async (tag) => {
+    if (isSavingTags) return;
 
-  const handleSaveTags = async () => {
-    setIsProcessing(true);
+    const previousTags = selectedTags;
+    const newTags = previousTags.includes(tag)
+      ? previousTags.filter(t => t !== tag)
+      : [...previousTags, tag];
+
+    setSelectedTags(newTags);
+    setIsSavingTags(true);
     try {
-      await onUpdate({ tags: selectedTags });
+      await onUpdate({ tags: newTags });
     } catch (error) {
       console.error("Error updating tags:", error);
+      setSelectedTags(previousTags);
+      toast({
+        title: "Failed to save tags",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingTags(false);
     }
-    setIsProcessing(false);
   };
 
   return (
@@ -307,7 +323,9 @@ export default function OrderActions({ order, onUpdate }) {
               <div
                 key={key}
                 onClick={() => toggleTag(key)}
-                className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                className={`p-3 rounded-lg border-2 transition-all ${
+                  isSavingTags ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
+                } ${
                   selectedTags.includes(key)
                     ? 'border-emerald-500 bg-emerald-50'
                     : 'border-slate-200 bg-slate-50 hover:border-slate-300'
@@ -325,25 +343,16 @@ export default function OrderActions({ order, onUpdate }) {
               </div>
             ))}
           </div>
-          {JSON.stringify(selectedTags) !== JSON.stringify(order.tags || []) && (
-            <Button
-              onClick={handleSaveTags}
-              disabled={isProcessing}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              {isProcessing ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Save Tags
-                </>
-              )}
-            </Button>
-          )}
+          <div className="text-xs text-slate-600 flex items-center gap-2">
+            {isSavingTags ? (
+              <>
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Saving tags...
+              </>
+            ) : (
+              "Tag changes save automatically."
+            )}
+          </div>
         </CardContent>
       </Card>
 

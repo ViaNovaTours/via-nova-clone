@@ -1,55 +1,6 @@
+import { requireAuthenticated } from "../_shared/auth.ts";
 import { getConnectorAccessToken } from "../_shared/connectors.ts";
-import { supabaseAdmin } from "../_shared/supabase.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-user-jwt, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-};
-
-const jsonResponse = (payload: unknown, status = 200) =>
-  new Response(JSON.stringify(payload), {
-    status,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "application/json",
-    },
-  });
-
-const getRequestToken = (req: Request) => {
-  const fromUserJwt = req.headers.get("x-user-jwt");
-  if (fromUserJwt) {
-    return fromUserJwt.replace(/^Bearer\s+/i, "").trim();
-  }
-
-  const authorization = req.headers.get("authorization") || "";
-  const [scheme, token] = authorization.split(" ");
-  if (scheme?.toLowerCase() !== "bearer" || !token) {
-    return null;
-  }
-  return token.trim();
-};
-
-const requireAuthenticated = async (req: Request) => {
-  const token = getRequestToken(req);
-  if (!token) {
-    return {
-      ok: false as const,
-      response: jsonResponse({ success: false, error: "Unauthorized" }, 401),
-    };
-  }
-
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data?.user) {
-    return {
-      ok: false as const,
-      response: jsonResponse({ success: false, error: "Unauthorized" }, 401),
-    };
-  }
-
-  return { ok: true as const, context: { user: data.user } };
-};
+import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 
 const decodeBase64Url = (value: string) => {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");

@@ -31,14 +31,40 @@ const toKebabCase = (value) =>
     .replace(/-+/g, "-")
     .toLowerCase();
 
-const isFunctionMissingError = (error) => {
-  const status = error?.context?.status || error?.status;
-  if (status === 404) {
+const isFunctionMissingError = async (error) => {
+  const status = error?.context?.status || error?.status || null;
+  const message = `${error?.message || ""} ${error?.details || ""}`.toLowerCase();
+
+  if (/function .* does not exist/.test(message)) {
     return true;
   }
+  if (/requested function was not found/.test(message)) {
+    return true;
+  }
+  if (status !== 404) {
+    return false;
+  }
 
-  const message = `${error?.message || ""} ${error?.details || ""}`;
-  return /not found|function .* does not exist|404/i.test(message);
+  const response = error?.context;
+  if (!response || typeof response.clone !== "function") {
+    return false;
+  }
+
+  try {
+    const json = await response.clone().json();
+    const code = String(json?.code || "").toUpperCase();
+    const text = `${json?.message || ""} ${json?.error || ""}`.toLowerCase();
+    return code === "NOT_FOUND" && /requested function was not found/.test(text);
+  } catch (jsonError) {
+    // ignore parsing error
+  }
+
+  try {
+    const text = (await response.clone().text()).toLowerCase();
+    return /requested function was not found/.test(text);
+  } catch (textError) {
+    return false;
+  }
 };
 
 const getFunctionCandidates = (legacyName) => {
@@ -55,7 +81,6 @@ const getFunctionCandidates = (legacyName) => {
 const resolveFunctionErrorMessage = async (error) => {
   const fallback = error?.message || "Unknown function invocation error";
   const response = error?.context;
-
   if (!response || typeof response.clone !== "function") {
     return fallback;
   }
@@ -69,23 +94,17 @@ const resolveFunctionErrorMessage = async (error) => {
         "Redeploy the function with the migrated Supabase implementation."
       );
     }
-    if (json?.error) {
-      return String(json.error);
-    }
-    if (json?.message) {
-      return String(json.message);
-    }
+    if (json?.error) return String(json.error);
+    if (json?.message) return String(json.message);
   } catch (jsonError) {
-    // Continue to text fallback.
+    // continue to text fallback
   }
 
   try {
     const text = await response.clone().text();
-    if (text) {
-      return text.slice(0, 400);
-    }
+    if (text) return text.slice(0, 400);
   } catch (textError) {
-    // Keep fallback.
+    // ignore
   }
 
   return fallback;
@@ -107,7 +126,7 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
   const client = getSupabaseClient();
   const candidates = getFunctionCandidates(legacyName);
   let lastError = null;
-
+  
   const getAccessToken = async () => {
     try {
       const {
@@ -118,21 +137,22 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
       return null;
     }
   };
-
+  
   let accessToken = await getAccessToken();
   const gatewayToken = env.supabaseAnonKey || accessToken || null;
   if (gatewayToken) {
     client.functions.setAuth(gatewayToken);
   }
-
+  
   const invokeWithHeaders = async (functionName, body, includeUserJwt = true) =>
     client.functions.invoke(functionName, {
       body,
-      headers: includeUserJwt && accessToken
-        ? {
-            "x-user-jwt": accessToken,
-          }
-        : undefined,
+      headers:
+        includeUserJwt && accessToken
+          ? {
+              "x-user-jwt": accessToken,
+            }
+          : undefined,
     });
 
   for (const functionName of candidates) {
@@ -146,8 +166,7 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
       error &&
       /Failed to send a request to the Edge Function/i.test(error?.message || "")
     ) {
-      // Some functions may not yet allow x-user-jwt in CORS.
-      // Retry without custom headers to avoid transport-level failure.
+      // Retry without custom headers for stricter CORS deployments.
       ({ data, error } = await invokeWithHeaders(functionName, payload ?? {}, false));
     }
 
@@ -162,17 +181,18 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
             accessToken = refreshedSession.access_token;
             ({ data, error } = await invokeWithHeaders(
               functionName,
-              payload ?? {}
+              payload ?? {},
+              true
             ));
           }
         } catch (refreshError) {
-          // Keep original error path below.
+          // keep original error path below
         }
       }
     }
 
     if (error) {
-      if (isFunctionMissingError(error)) {
+      if (await isFunctionMissingError(error)) {
         lastError = error;
         continue;
       }
@@ -209,13 +229,13 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
     const message = `${lastError?.message || ""} ${lastError?.details || ""}`;
     if (/invalid jwt/i.test(message)) {
       throw new Error(
-        'Supabase rejected the JWT for function calls. Check VITE_SUPABASE_ANON_KEY and ensure you are logged in with a valid Supabase session.'
+        "Supabase rejected the JWT for function calls. Check VITE_SUPABASE_ANON_KEY and your logged-in session."
       );
     }
   }
 
   throw new Error(
-    `Function "${legacyName}" is not deployed in Supabase. Tried: ${tried}.`
+    `Function "${legacyName}" is not deployed in Supabase (${env.supabaseUrl || "unknown project"}). Tried: ${tried}.`
   );
 };
 

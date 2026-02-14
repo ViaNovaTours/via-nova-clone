@@ -10,22 +10,7 @@ export type AuthContext = {
   };
 };
 
-const normalizeToken = (raw: string | null) => {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  if (/^bearer\s+/i.test(trimmed)) {
-    return trimmed.replace(/^bearer\s+/i, "").trim() || null;
-  }
-  return trimmed;
-};
-
 const getBearerToken = (req: Request) => {
-  const forwardedUserToken = normalizeToken(req.headers.get("x-user-jwt"));
-  if (forwardedUserToken) {
-    return forwardedUserToken;
-  }
-
   const authorization = req.headers.get("authorization") || "";
   const [scheme, token] = authorization.split(" ");
   if (scheme?.toLowerCase() !== "bearer" || !token) {
@@ -35,22 +20,12 @@ const getBearerToken = (req: Request) => {
 };
 
 const getRoleFromMetadata = (user: any) => {
-  const rawRole = user?.app_metadata?.role || user?.user_metadata?.role || null;
-  if (typeof rawRole !== "string") {
-    return null;
-  }
-
-  const normalized = rawRole.trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-
-  // Supabase auth role claims are not app authorization roles.
-  if (["authenticated", "anon", "service_role"].includes(normalized)) {
-    return null;
-  }
-
-  return normalized;
+  return (
+    user?.app_metadata?.role ||
+    user?.user_metadata?.role ||
+    user?.role ||
+    null
+  );
 };
 
 const getProfileRole = async (userId: string) => {
@@ -85,7 +60,7 @@ export const getRequestUser = async (req: Request): Promise<AuthContext | null> 
     user: {
       id: rawUser.id,
       email: rawUser.email,
-      role: String(profileRole || "user").toLowerCase(),
+      role: profileRole || "user",
       raw: rawUser,
     },
   };
@@ -115,7 +90,7 @@ export const requireAdmin = async (
     return auth;
   }
 
-  if (String(auth.context.user.role).toLowerCase() !== "admin") {
+  if (auth.context.user.role !== "admin") {
     return {
       ok: false,
       response: jsonResponse(

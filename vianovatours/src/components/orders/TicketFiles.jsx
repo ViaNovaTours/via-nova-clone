@@ -12,11 +12,12 @@ import { sendReservedEmail } from "@/functions/sendReservedEmail";
 import { rasterizePDF } from "./PDFRasterizer";
 import { base44 } from "@/api/base44Client";
 
-export default function TicketFiles({ order, onUpdate }) {
+export default function TicketFiles({ order, onUpdate, onRefresh }) {
   const [isUploading, setIsUploading] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
   const [error, setError] = useState(null);
-  const [emailSuccess, setEmailSuccess] = useState(false);
+  const [emailSuccessMessage, setEmailSuccessMessage] = useState("");
   const [loadingFile, setLoadingFile] = useState(null);
   const [emailPreview, setEmailPreview] = useState(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
@@ -161,7 +162,7 @@ export default function TicketFiles({ order, onUpdate }) {
         recommendedTours,
         downloadLink,
         to: order.email,
-        from: landingPage?.confirmation_email_from || 'tickets@vianovatours.com',
+        from: 'info@vianovatours.com',
         subject: `Your ${order.tour} Ticket is Attached`
       });
     } catch (err) {
@@ -185,11 +186,12 @@ export default function TicketFiles({ order, onUpdate }) {
 
     setIsSendingEmail(true);
     setError(null);
-    setEmailSuccess(false);
+    setEmailSuccessMessage("");
     
     try {
+      const orderLookup = order.order_id || order.id;
       const response = await sendTicketEmail({ 
-        orderId: order.order_id,
+        orderId: orderLookup,
         downloadLink: downloadLink || undefined
       });
       
@@ -197,15 +199,14 @@ export default function TicketFiles({ order, onUpdate }) {
         throw new Error(response.data.error || 'Failed to send email');
       }
       
-      setEmailSuccess(true);
-      setTimeout(() => setEmailSuccess(false), 5000);
+      setEmailSuccessMessage(`Ticket email sent successfully to ${order.email}`);
+      setTimeout(() => setEmailSuccessMessage(""), 5000);
       
-      // Refresh order data to show updated communications
-      if (onUpdate) {
-        const updatedOrder = await base44.entities.Order.filter({ order_id: order.order_id });
-        if (updatedOrder && updatedOrder.length > 0) {
-          await onUpdate(updatedOrder[0]);
-        }
+      // Refresh order data to show updated timeline/communications
+      if (onRefresh) {
+        await onRefresh();
+      } else if (onUpdate) {
+        await onUpdate({ updated_date: new Date().toISOString() });
       }
     } catch (err) {
       console.error('Send email error:', err);
@@ -213,6 +214,47 @@ export default function TicketFiles({ order, onUpdate }) {
     }
     
     setIsSendingEmail(false);
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!order.ticket_files || order.ticket_files.length === 0) {
+      setError("No ticket files to send");
+      return;
+    }
+
+    setIsSendingTestEmail(true);
+    setError(null);
+    setEmailSuccessMessage("");
+
+    try {
+      const orderLookup = order.order_id || order.id;
+      const response = await sendTicketEmail({
+        orderId: orderLookup,
+        downloadLink: downloadLink || undefined,
+        testMode: true,
+        testEmail: "archive@vianovatours.com",
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.error || "Failed to send test email");
+      }
+
+      setEmailSuccessMessage(
+        "Test email sent successfully to archive@vianovatours.com"
+      );
+      setTimeout(() => setEmailSuccessMessage(""), 5000);
+
+      if (onRefresh) {
+        await onRefresh();
+      } else if (onUpdate) {
+        await onUpdate({ updated_date: new Date().toISOString() });
+      }
+    } catch (err) {
+      console.error("Send test email error:", err);
+      setError(err.message || "Failed to send test email");
+    }
+
+    setIsSendingTestEmail(false);
   };
 
   const handlePreviewReservedEmail = async () => {
@@ -274,8 +316,9 @@ export default function TicketFiles({ order, onUpdate }) {
     setError(null);
     
     try {
+      const orderLookup = order.order_id || order.id;
       const response = await sendReservedEmail({ 
-        orderId: order.order_id
+        orderId: orderLookup
       });
       
       if (!response.data.success) {
@@ -284,12 +327,11 @@ export default function TicketFiles({ order, onUpdate }) {
       
       alert('Reserved email sent successfully!');
       
-      // Refresh order data to show updated communications
-      if (onUpdate) {
-        const updatedOrder = await base44.entities.Order.filter({ order_id: order.order_id });
-        if (updatedOrder && updatedOrder.length > 0) {
-          await onUpdate(updatedOrder[0]);
-        }
+      // Refresh order data to show updated timeline/communications
+      if (onRefresh) {
+        await onRefresh();
+      } else if (onUpdate) {
+        await onUpdate({ updated_date: new Date().toISOString() });
       }
     } catch (err) {
       console.error('Send reserved email error:', err);
@@ -331,11 +373,11 @@ export default function TicketFiles({ order, onUpdate }) {
           </Alert>
         )}
 
-        {emailSuccess && (
+        {emailSuccessMessage && (
           <Alert className="border-green-200 bg-green-50">
             <Mail className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-800">
-              Ticket email sent successfully to {order.email}
+              {emailSuccessMessage}
             </AlertDescription>
           </Alert>
         )}
@@ -391,7 +433,7 @@ export default function TicketFiles({ order, onUpdate }) {
         </div>
 
         {/* Actions */}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <Button asChild variant="outline" className="w-full" disabled={isUploading}>
             <label htmlFor="ticket-upload" className="cursor-pointer flex items-center gap-2">
               {isUploading ? (
@@ -472,6 +514,25 @@ export default function TicketFiles({ order, onUpdate }) {
               <>
                 <Mail className="w-4 h-4 mr-2" />
                 Send Email
+              </>
+            )}
+          </Button>
+
+          <Button
+            onClick={handleSendTestEmail}
+            disabled={isSendingTestEmail || !order.ticket_files || order.ticket_files.length === 0}
+            variant="outline"
+            className="w-full border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+          >
+            {isSendingTestEmail ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                Sending Test...
+              </>
+            ) : (
+              <>
+                <Mail className="w-4 h-4 mr-2" />
+                Send Test
               </>
             )}
           </Button>

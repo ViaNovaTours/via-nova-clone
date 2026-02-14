@@ -46,7 +46,7 @@ This applies the schema from `supabase/migrations/*`.
 Create storage buckets:
 
 - `uploads` (used by frontend `UploadFile`)
-- `tickets` (optional backup storage if you choose to use Supabase file URLs)
+- `tickets` (used by `upload-to-google-drive` edge function)
 
 Set buckets to public if you want direct public URLs.
 

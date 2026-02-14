@@ -2,9 +2,24 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { Clock, CheckCircle, AlertTriangle, Users, Download } from "lucide-react";
+import { Clock, CheckCircle, AlertTriangle, Users, Mail } from "lucide-react";
 
 export default function OrderTimeline({ order }) {
+  const safeTimestamp = (value, fallback = null) => {
+    if (!value) return fallback;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return fallback;
+    return parsed.toISOString();
+  };
+
+  const formatTimestamp = (value) => {
+    const parsed = value ? new Date(value) : null;
+    if (!parsed || Number.isNaN(parsed.getTime())) {
+      return "Unknown time";
+    }
+    return format(parsed, "MMM d, yyyy 'at' h:mm a");
+  };
+
   const getTimelineEvents = () => {
     const events = [];
 
@@ -12,7 +27,7 @@ export default function OrderTimeline({ order }) {
     events.push({
       title: "Order Imported",
       description: `Order from ${order.first_name} ${order.last_name} imported from WooCommerce`,
-      timestamp: order.created_date,
+      timestamp: safeTimestamp(order.created_date, new Date().toISOString()),
       status: "completed",
       icon: CheckCircle
     });
@@ -22,7 +37,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Processing Started", 
         description: "Order is being processed",
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "current",
         icon: Clock
       });
@@ -32,7 +47,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Processing Started",
         description: "Order processing initiated", 
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "completed",
         icon: CheckCircle
       });
@@ -40,7 +55,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Tickets Purchased",
         description: `Purchase completed${order.total_cost ? ` - Total: €${order.total_cost}` : ''}`,
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "current",
         icon: CheckCircle
       });
@@ -50,7 +65,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Processing Started",
         description: "Order processing initiated",
-        timestamp: order.updated_date, 
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)), 
         status: "completed",
         icon: CheckCircle
       });
@@ -58,7 +73,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Tickets Purchased", 
         description: `Purchase completed${order.total_cost ? ` - Total: €${order.total_cost}` : ''}`,
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "completed", 
         icon: CheckCircle
       });
@@ -66,7 +81,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Order Confirmed",
         description: "Confirmation received and processed",
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "current",
         icon: CheckCircle
       });
@@ -76,7 +91,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Processing Started",
         description: "Order processing initiated",
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "completed", 
         icon: CheckCircle
       });
@@ -84,7 +99,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Tickets Purchased",
         description: `Purchase completed${order.total_cost ? ` - Total: €${order.total_cost}` : ''}`, 
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "completed",
         icon: CheckCircle
       });
@@ -92,7 +107,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Order Confirmed", 
         description: "Confirmation received and processed",
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "completed",
         icon: CheckCircle
       });
@@ -100,7 +115,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Tickets Delivered",
         description: "Customer received final tickets",
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "completed", 
         icon: CheckCircle
       });
@@ -110,7 +125,7 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Processing Failed",
         description: "Unable to complete purchase",
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "error",
         icon: AlertTriangle
       });
@@ -120,11 +135,42 @@ export default function OrderTimeline({ order }) {
       events.push({
         title: "Order Cancelled", 
         description: "Order was cancelled",
-        timestamp: order.updated_date,
+        timestamp: safeTimestamp(order.updated_date, safeTimestamp(order.created_date)),
         status: "error",
         icon: AlertTriangle
       });
     }
+
+    const emailComms = Array.isArray(order.email_communications)
+      ? order.email_communications
+      : [];
+
+    for (const comm of emailComms) {
+      const type = String(comm?.type || "").toLowerCase();
+      if (!["ticket_email", "reserved_email"].includes(type)) continue;
+
+      const title =
+        type === "ticket_email" ? "Ticket Email Sent" : "Reserved Email Sent";
+      const recipient = comm?.to ? `to ${comm.to}` : "to customer";
+      const sender = comm?.sent_by ? ` by ${comm.sent_by}` : "";
+
+      events.push({
+        title,
+        description: `Sent ${recipient}${sender}`,
+        timestamp: safeTimestamp(
+          comm?.sent_at || comm?.timestamp,
+          safeTimestamp(order.updated_date, safeTimestamp(order.created_date))
+        ),
+        status: "completed",
+        icon: Mail,
+      });
+    }
+
+    events.sort((a, b) => {
+      const aTime = new Date(a.timestamp || 0).getTime();
+      const bTime = new Date(b.timestamp || 0).getTime();
+      return aTime - bTime;
+    });
 
     return events;
   };
@@ -176,7 +222,7 @@ export default function OrderTimeline({ order }) {
                 </div>
                 <p className="text-sm text-slate-600 mb-2">{event.description}</p>
                 <p className="text-xs text-slate-500">
-                  {format(new Date(event.timestamp), "MMM d, yyyy 'at' h:mm a")}
+                  {formatTimestamp(event.timestamp)}
                 </p>
               </div>
             </div>

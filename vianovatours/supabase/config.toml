@@ -16,8 +16,8 @@ major_version = 15
 enabled = true
 port = 54323
 
-[functions]
-verify_jwt = false
+# [functions]
+# verify_jwt = false
 
 [functions.fetch-woocommerce-orders]
 verify_jwt = false
@@ -66,4 +66,3 @@ verify_jwt = false
 
 [functions.log-ad-spend]
 verify_jwt = false
-

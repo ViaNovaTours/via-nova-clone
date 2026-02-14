@@ -27,10 +27,12 @@ export default function OrderDetail() {
   const urlParams = new URLSearchParams(window.location.search);
   const orderId = urlParams.get('id');
 
-  const loadOrder = useCallback(async () => {
+  const loadOrder = useCallback(async ({ showLoader = true } = {}) => {
     if (!orderId) return;
     
-    setIsLoading(true);
+    if (showLoader) {
+      setIsLoading(true);
+    }
     try {
       const orders = await base44.entities.Order.filter({ id: orderId });
       if (orders.length > 0) {
@@ -68,12 +70,15 @@ export default function OrderDetail() {
       }
     } catch (error) {
       console.error("Error loading order:", error);
+    } finally {
+      if (showLoader) {
+        setIsLoading(false);
+      }
     }
-    setIsLoading(false);
   }, [orderId]);
 
   useEffect(() => {
-    loadOrder();
+    loadOrder({ showLoader: true });
   }, [loadOrder]);
 
   const handleUpdateSubmit = async (updates) => {
@@ -92,12 +97,14 @@ export default function OrderDetail() {
 
   const handleOrderUpdate = async (updates) => {
     try {
-      await base44.entities.Order.update(order.id, updates);
-      setOrder(prev => ({ ...prev, ...updates }));
+      const updated = await base44.entities.Order.update(order.id, updates);
+      await loadOrder({ showLoader: false });
+      return updated;
     } catch (error) {
       console.error("Error updating order:", error);
       // Add user-friendly error handling
       alert("Failed to update order. Please try again.");
+      throw error;
     }
   };
 
@@ -201,6 +208,7 @@ export default function OrderDetail() {
           <TicketFiles
             order={order}
             onUpdate={handleOrderUpdate}
+            onRefresh={() => loadOrder({ showLoader: false })}
           />
           <CustomerCommunication 
             order={order} 
