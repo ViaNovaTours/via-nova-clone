@@ -13,7 +13,7 @@ export const AuthProvider = ({ children }) => {
   const [appPublicSettings, setAppPublicSettings] = useState(null);
 
   useEffect(() => {
-    checkAppState();
+    checkAppState({ showLoader: true });
 
     if (!supabase) {
       return undefined;
@@ -21,8 +21,16 @@ export const AuthProvider = ({ children }) => {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      checkAppState();
+    } = supabase.auth.onAuthStateChange((event) => {
+      // Token refreshes can happen when tab visibility changes.
+      // Re-validate auth silently so we don't unmount/remount the whole app.
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setIsAuthenticated(false);
+        setAuthError(null);
+        return;
+      }
+      checkAppState({ showLoader: false });
     });
 
     return () => {
@@ -30,8 +38,10 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  const checkAppState = async () => {
-    setIsLoadingAuth(true);
+  const checkAppState = async ({ showLoader = false } = {}) => {
+    if (showLoader) {
+      setIsLoadingAuth(true);
+    }
     setAuthError(null);
 
     try {
@@ -53,7 +63,9 @@ export const AuthProvider = ({ children }) => {
         setAuthError(null);
       }
     } finally {
-      setIsLoadingAuth(false);
+      if (showLoader) {
+        setIsLoadingAuth(false);
+      }
     }
   };
 
