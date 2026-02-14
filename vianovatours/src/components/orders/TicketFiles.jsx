@@ -12,7 +12,7 @@ import { sendReservedEmail } from "@/functions/sendReservedEmail";
 import { rasterizePDF } from "./PDFRasterizer";
 import { base44 } from "@/api/base44Client";
 
-export default function TicketFiles({ order, onUpdate }) {
+export default function TicketFiles({ order, onUpdate, onRefresh }) {
   const [isUploading, setIsUploading] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [error, setError] = useState(null);
@@ -161,7 +161,7 @@ export default function TicketFiles({ order, onUpdate }) {
         recommendedTours,
         downloadLink,
         to: order.email,
-        from: landingPage?.confirmation_email_from || 'tickets@vianovatours.com',
+        from: 'info@vianovatours.com',
         subject: `Your ${order.tour} Ticket is Attached`
       });
     } catch (err) {
@@ -201,12 +201,11 @@ export default function TicketFiles({ order, onUpdate }) {
       setEmailSuccess(true);
       setTimeout(() => setEmailSuccess(false), 5000);
       
-      // Refresh order data to show updated communications
-      if (onUpdate) {
-        const updatedOrder = await base44.entities.Order.filter({ order_id: order.order_id });
-        if (updatedOrder && updatedOrder.length > 0) {
-          await onUpdate(updatedOrder[0]);
-        }
+      // Refresh order data to show updated timeline/communications
+      if (onRefresh) {
+        await onRefresh();
+      } else if (onUpdate) {
+        await onUpdate({ updated_date: new Date().toISOString() });
       }
     } catch (err) {
       console.error('Send email error:', err);
@@ -286,12 +285,11 @@ export default function TicketFiles({ order, onUpdate }) {
       
       alert('Reserved email sent successfully!');
       
-      // Refresh order data to show updated communications
-      if (onUpdate) {
-        const updatedOrder = await base44.entities.Order.filter({ order_id: order.order_id });
-        if (updatedOrder && updatedOrder.length > 0) {
-          await onUpdate(updatedOrder[0]);
-        }
+      // Refresh order data to show updated timeline/communications
+      if (onRefresh) {
+        await onRefresh();
+      } else if (onUpdate) {
+        await onUpdate({ updated_date: new Date().toISOString() });
       }
     } catch (err) {
       console.error('Send reserved email error:', err);

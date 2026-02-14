@@ -208,6 +208,7 @@ export default function OrderDetail() {
           <TicketFiles
             order={order}
             onUpdate={handleOrderUpdate}
+            onRefresh={() => loadOrder({ showLoader: false })}
           />
           <CustomerCommunication 
             order={order} 

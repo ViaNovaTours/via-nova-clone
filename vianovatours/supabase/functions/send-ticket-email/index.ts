@@ -24,8 +24,9 @@ const jsonResponse = (payload: unknown, status = 200) =>
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const sendGridApiKey = Deno.env.get("SENDGRID_API_KEY") ?? "";
-const fromEmail = Deno.env.get("SENDGRID_FROM_EMAIL") || "info@vianovatours.com";
+const fromEmail = "info@vianovatours.com";
 const fromName = Deno.env.get("SENDGRID_FROM_NAME") || "Via Nova Tours";
+const archiveBcc = Deno.env.get("SENDGRID_ARCHIVE_BCC") || "archive@vianovatours.com";
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false },
@@ -132,7 +133,12 @@ const sendEmail = async ({
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
+      personalizations: [
+        {
+          to: [{ email: to }],
+          bcc: archiveBcc ? [{ email: archiveBcc }] : [],
+        },
+      ],
       from: { email: fromEmail, name: fromName },
       subject,
       content: [{ type: "text/html", value: html }],
@@ -211,8 +217,8 @@ Deno.serve(async (req) => {
 
     if (!order) {
       return jsonResponse(
-        { success: false, error: `Order not found: ${lookup}` },
-        404
+        { success: false, error: `Order lookup failed: no matching order for ${lookup}` },
+        400
       );
     }
 
