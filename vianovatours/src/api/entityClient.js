@@ -17,6 +17,7 @@ const DEFAULT_ENTITY_TABLE_CANDIDATES = {
 
 const tableResolutionCache = new Map();
 const DEFAULT_PAGE_SIZE = 1000;
+const MAX_AUTO_PAGES = 25;
 
 const toSnakeCase = (value) =>
   String(value)
@@ -121,8 +122,16 @@ const runPagedSelect = async ({
   const normalizedLimit = normalizeLimit(limit);
   const rows = [];
   let offset = 0;
+  let page = 0;
+  let previousPageSignature = null;
+  const seenIds = new Set();
 
   while (true) {
+    page += 1;
+    if (page > MAX_AUTO_PAGES) {
+      break;
+    }
+
     if (normalizedLimit !== null && rows.length >= normalizedLimit) {
       break;
     }
@@ -141,7 +150,29 @@ const runPagedSelect = async ({
     }
 
     const pageRows = Array.isArray(data) ? data : [];
-    rows.push(...pageRows);
+    const firstId = pageRows[0]?.id || "";
+    const lastId = pageRows.at(-1)?.id || "";
+    const currentPageSignature = `${pageRows.length}:${firstId}:${lastId}`;
+
+    // Guard against gateways that keep returning the same first page.
+    if (
+      previousPageSignature !== null &&
+      currentPageSignature === previousPageSignature
+    ) {
+      break;
+    }
+    previousPageSignature = currentPageSignature;
+
+    for (const row of pageRows) {
+      const rowId = row?.id;
+      if (rowId && seenIds.has(rowId)) {
+        continue;
+      }
+      if (rowId) {
+        seenIds.add(rowId);
+      }
+      rows.push(row);
+    }
 
     if (pageRows.length < remaining) {
       break;
@@ -169,6 +200,8 @@ export const createEntityApi = (entityName) => ({
             query = query.order(sortConfig.column, {
               ascending: sortConfig.ascending,
             });
+          } else {
+            query = query.order("id", { ascending: true });
           }
           return query;
         },
@@ -197,6 +230,8 @@ export const createEntityApi = (entityName) => ({
             query = query.order(sortConfig.column, {
               ascending: sortConfig.ascending,
             });
+          } else {
+            query = query.order("id", { ascending: true });
           }
           return query;
         },
