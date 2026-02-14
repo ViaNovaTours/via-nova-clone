@@ -46,7 +46,7 @@ This applies the schema from `supabase/migrations/*`.
 Create storage buckets:
 
 - `uploads` (used by frontend `UploadFile`)
-- `tickets` (used by `upload-to-google-drive` edge function)
+- `tickets` (optional backup storage if you choose to use Supabase file URLs)
 
 Set buckets to public if you want direct public URLs.
 
@@ -88,6 +88,7 @@ supabase secrets set SENDGRID_FROM_NAME="Via Nova Tours"
 supabase secrets set OPENAI_API_KEY=...
 supabase secrets set EMAIL_WEBHOOK_SECRET=...
 supabase secrets set WOOCOMMERCE_WEBHOOK_SECRET=...
+supabase secrets set GOOGLE_DRIVE_RECEIPTS_FOLDER_ID=...
 ```
 
 ## 2) Frontend setup (local)
