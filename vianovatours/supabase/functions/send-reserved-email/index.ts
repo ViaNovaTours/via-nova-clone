@@ -148,26 +148,40 @@ Deno.serve(async (req) => {
 
   try {
     const payload = (await req.json()) as Payload;
+    const lookup = String(payload.orderId || "").trim();
 
-    if (!payload.orderId) {
+    if (!lookup) {
       return jsonResponse({ success: false, error: "orderId is required" }, 400);
     }
 
-    const { data: order, error: orderError } = await supabase
+    const { data: orderByOrderId, error: byOrderIdError } = await supabase
       .from("orders")
       .select("*")
-      .eq("order_id", payload.orderId)
+      .eq("order_id", lookup)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (orderError) {
-      return jsonResponse({ success: false, error: orderError.message }, 500);
+    if (byOrderIdError) {
+      return jsonResponse({ success: false, error: byOrderIdError.message }, 500);
+    }
+
+    let order = orderByOrderId;
+    if (!order) {
+      const { data: orderById, error: byIdError } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("id", lookup)
+        .maybeSingle();
+      if (byIdError) {
+        return jsonResponse({ success: false, error: byIdError.message }, 500);
+      }
+      order = orderById;
     }
 
     if (!order) {
       return jsonResponse(
-        { success: false, error: `Order not found: ${payload.orderId}` },
+        { success: false, error: `Order not found: ${lookup}` },
         404
       );
     }

@@ -31,9 +31,40 @@ const toKebabCase = (value) =>
     .replace(/-+/g, "-")
     .toLowerCase();
 
-const isFunctionMissingError = (error) => {
-  const message = `${error?.message || ""} ${error?.details || ""}`;
-  return /not found|function .* does not exist|404|edge function/i.test(message);
+const isFunctionMissingError = async (error) => {
+  const status = error?.context?.status || error?.status || null;
+  const message = `${error?.message || ""} ${error?.details || ""}`.toLowerCase();
+
+  if (/function .* does not exist/.test(message)) {
+    return true;
+  }
+  if (/requested function was not found/.test(message)) {
+    return true;
+  }
+  if (status !== 404) {
+    return false;
+  }
+
+  const response = error?.context;
+  if (!response || typeof response.clone !== "function") {
+    return false;
+  }
+
+  try {
+    const json = await response.clone().json();
+    const code = String(json?.code || "").toUpperCase();
+    const text = `${json?.message || ""} ${json?.error || ""}`.toLowerCase();
+    return code === "NOT_FOUND" && /requested function was not found/.test(text);
+  } catch (jsonError) {
+    // ignore parsing error
+  }
+
+  try {
+    const text = (await response.clone().text()).toLowerCase();
+    return /requested function was not found/.test(text);
+  } catch (textError) {
+    return false;
+  }
 };
 
 const getFunctionCandidates = (legacyName) => {
@@ -47,13 +78,47 @@ const getFunctionCandidates = (legacyName) => {
   );
 };
 
-const withResponseError = (legacyName, functionName, error) => {
+const resolveFunctionErrorMessage = async (error) => {
+  const fallback = error?.message || "Unknown function invocation error";
+  const response = error?.context;
+  if (!response || typeof response.clone !== "function") {
+    return fallback;
+  }
+
+  try {
+    const json = await response.clone().json();
+    const combinedMessage = `${json?.error || ""} ${json?.message || ""}`.trim();
+    if (/base44-app-id header is required/i.test(combinedMessage)) {
+      return (
+        "This Supabase function is still running legacy Base44 code. " +
+        "Redeploy the function with the migrated Supabase implementation."
+      );
+    }
+    if (json?.error) return String(json.error);
+    if (json?.message) return String(json.message);
+  } catch (jsonError) {
+    // continue to text fallback
+  }
+
+  try {
+    const text = await response.clone().text();
+    if (text) return text.slice(0, 400);
+  } catch (textError) {
+    // ignore
+  }
+
+  return fallback;
+};
+
+const withResponseError = async (legacyName, functionName, error) => {
+  const resolvedMessage = await resolveFunctionErrorMessage(error);
   const normalizedError = new Error(
-    `Function "${legacyName}" failed via "${functionName}": ${error.message}`
+    `Function "${legacyName}" failed via "${functionName}": ${resolvedMessage}`
   );
   normalizedError.status = error.status;
   normalizedError.details = error.details;
   normalizedError.hint = error.hint;
+  normalizedError.context = error.context;
   throw normalizedError;
 };
 
@@ -61,18 +126,77 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
   const client = getSupabaseClient();
   const candidates = getFunctionCandidates(legacyName);
   let lastError = null;
-
-  for (const functionName of candidates) {
-    const { data, error } = await client.functions.invoke(functionName, {
-      body: payload ?? {},
+  
+  const getAccessToken = async () => {
+    try {
+      const {
+        data: { session },
+      } = await client.auth.getSession();
+      return session?.access_token || null;
+    } catch (error) {
+      return null;
+    }
+  };
+  
+  let accessToken = await getAccessToken();
+  const gatewayToken = env.supabaseAnonKey || accessToken || null;
+  if (gatewayToken) {
+    client.functions.setAuth(gatewayToken);
+  }
+  
+  const invokeWithHeaders = async (functionName, body, includeUserJwt = true) =>
+    client.functions.invoke(functionName, {
+      body,
+      headers:
+        includeUserJwt && accessToken
+          ? {
+              "x-user-jwt": accessToken,
+            }
+          : undefined,
     });
 
+  for (const functionName of candidates) {
+    let { data, error } = await invokeWithHeaders(
+      functionName,
+      payload ?? {},
+      true
+    );
+
+    if (
+      error &&
+      /Failed to send a request to the Edge Function/i.test(error?.message || "")
+    ) {
+      // Retry without custom headers for stricter CORS deployments.
+      ({ data, error } = await invokeWithHeaders(functionName, payload ?? {}, false));
+    }
+
     if (error) {
-      if (isFunctionMissingError(error)) {
+      const message = `${error?.message || ""} ${error?.details || ""}`;
+      if (/invalid jwt/i.test(message)) {
+        try {
+          const {
+            data: { session: refreshedSession },
+          } = await client.auth.refreshSession();
+          if (refreshedSession?.access_token) {
+            accessToken = refreshedSession.access_token;
+            ({ data, error } = await invokeWithHeaders(
+              functionName,
+              payload ?? {},
+              true
+            ));
+          }
+        } catch (refreshError) {
+          // keep original error path below
+        }
+      }
+    }
+
+    if (error) {
+      if (await isFunctionMissingError(error)) {
         lastError = error;
         continue;
       }
-      withResponseError(legacyName, functionName, error);
+      await withResponseError(legacyName, functionName, error);
     }
 
     return {
@@ -83,11 +207,9 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
 
   const tried = candidates.join(", ");
   if (legacyName !== "legacyMaintenance") {
-    const { data, error } = await client.functions.invoke("legacy-maintenance", {
-      body: {
-        functionName: legacyName,
-        payload: payload ?? {},
-      },
+    const { data, error } = await invokeWithHeaders("legacy-maintenance", {
+      functionName: legacyName,
+      payload: payload ?? {},
     });
 
     if (!error) {
@@ -103,8 +225,17 @@ export const invokeSupabaseFunction = async (legacyName, payload = {}) => {
     }
   }
 
+  if (lastError) {
+    const message = `${lastError?.message || ""} ${lastError?.details || ""}`;
+    if (/invalid jwt/i.test(message)) {
+      throw new Error(
+        "Supabase rejected the JWT for function calls. Check VITE_SUPABASE_ANON_KEY and your logged-in session."
+      );
+    }
+  }
+
   throw new Error(
-    `Function "${legacyName}" is not deployed in Supabase. Tried: ${tried}.`
+    `Function "${legacyName}" is not deployed in Supabase (${env.supabaseUrl || "unknown project"}). Tried: ${tried}.`
   );
 };
 

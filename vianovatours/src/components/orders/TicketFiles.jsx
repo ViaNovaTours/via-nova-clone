@@ -188,8 +188,9 @@ export default function TicketFiles({ order, onUpdate }) {
     setEmailSuccess(false);
     
     try {
+      const orderLookup = order.order_id || order.id;
       const response = await sendTicketEmail({ 
-        orderId: order.order_id,
+        orderId: orderLookup,
         downloadLink: downloadLink || undefined
       });
       
@@ -274,8 +275,9 @@ export default function TicketFiles({ order, onUpdate }) {
     setError(null);
     
     try {
+      const orderLookup = order.order_id || order.id;
       const response = await sendReservedEmail({ 
-        orderId: order.order_id
+        orderId: orderLookup
       });
       
       if (!response.data.success) {
