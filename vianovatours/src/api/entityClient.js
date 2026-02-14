@@ -16,6 +16,7 @@ const DEFAULT_ENTITY_TABLE_CANDIDATES = {
 };
 
 const tableResolutionCache = new Map();
+const DEFAULT_PAGE_SIZE = 1000;
 
 const toSnakeCase = (value) =>
   String(value)
@@ -37,6 +38,13 @@ const parseSortConfig = (sortBy) => {
     column: desc ? sortBy.slice(1) : sortBy,
     ascending: !desc,
   };
+};
+
+const normalizeLimit = (limit) => {
+  if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) {
+    return null;
+  }
+  return Math.floor(limit);
 };
 
 const normalizeSupabaseError = (error) => {
@@ -104,46 +112,96 @@ const runWithTableFallback = async (entityName, executor) => {
   );
 };
 
+const runPagedSelect = async ({
+  tableName,
+  limit,
+  buildQuery,
+}) => {
+  const client = getSupabaseClient();
+  const normalizedLimit = normalizeLimit(limit);
+  const rows = [];
+  let offset = 0;
+
+  while (true) {
+    if (normalizedLimit !== null && rows.length >= normalizedLimit) {
+      break;
+    }
+
+    const remaining = normalizedLimit === null
+      ? DEFAULT_PAGE_SIZE
+      : Math.min(DEFAULT_PAGE_SIZE, normalizedLimit - rows.length);
+    const upperBound = offset + remaining - 1;
+
+    let query = buildQuery(client.from(tableName));
+    query = query.range(offset, upperBound);
+
+    const { data, error } = await query;
+    if (error) {
+      return { data: null, error };
+    }
+
+    const pageRows = Array.isArray(data) ? data : [];
+    rows.push(...pageRows);
+
+    if (pageRows.length < remaining) {
+      break;
+    }
+
+    offset += remaining;
+  }
+
+  return {
+    data: normalizedLimit === null ? rows : rows.slice(0, normalizedLimit),
+    error: null,
+  };
+};
+
 export const createEntityApi = (entityName) => ({
   async list(sortBy, limit) {
     const sortConfig = parseSortConfig(sortBy);
-    return runWithTableFallback(entityName, async (queryBuilder) => {
-      let query = queryBuilder.select("*");
-      if (sortConfig) {
-        query = query.order(sortConfig.column, {
-          ascending: sortConfig.ascending,
-        });
-      }
-      if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
-        query = query.limit(limit);
-      }
-      return query;
-    });
+    return runWithTableFallback(entityName, async (_queryBuilder, tableName) =>
+      runPagedSelect({
+        tableName,
+        limit,
+        buildQuery: (fromBuilder) => {
+          let query = fromBuilder.select("*");
+          if (sortConfig) {
+            query = query.order(sortConfig.column, {
+              ascending: sortConfig.ascending,
+            });
+          }
+          return query;
+        },
+      })
+    );
   },
 
   async filter(filters = {}, sortBy, limit) {
     const sortConfig = parseSortConfig(sortBy);
-    return runWithTableFallback(entityName, async (queryBuilder) => {
-      let query = queryBuilder.select("*");
-      for (const [key, value] of Object.entries(filters || {})) {
-        if (Array.isArray(value)) {
-          query = query.in(key, value);
-        } else if (value === null) {
-          query = query.is(key, null);
-        } else {
-          query = query.eq(key, value);
-        }
-      }
-      if (sortConfig) {
-        query = query.order(sortConfig.column, {
-          ascending: sortConfig.ascending,
-        });
-      }
-      if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
-        query = query.limit(limit);
-      }
-      return query;
-    });
+    return runWithTableFallback(entityName, async (_queryBuilder, tableName) =>
+      runPagedSelect({
+        tableName,
+        limit,
+        buildQuery: (fromBuilder) => {
+          let query = fromBuilder.select("*");
+          for (const [key, value] of Object.entries(filters || {})) {
+            if (Array.isArray(value)) {
+              query = query.in(key, value);
+            } else if (value === null) {
+              query = query.is(key, null);
+            } else {
+              query = query.eq(key, value);
+            }
+          }
+          if (sortConfig) {
+            query = query.order(sortConfig.column, {
+              ascending: sortConfig.ascending,
+            });
+          }
+          return query;
+        },
+      })
+    );
   },
 
   async get(id) {
