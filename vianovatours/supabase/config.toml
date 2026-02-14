@@ -64,3 +64,6 @@ verify_jwt = false
 [functions.upload-to-google-drive]
 verify_jwt = false
 
+[functions.log-ad-spend]
+verify_jwt = false
+
