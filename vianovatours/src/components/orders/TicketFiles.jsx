@@ -120,6 +120,7 @@ export default function TicketFiles({ order, onUpdate, onRefresh }) {
     setError(null);
     
     try {
+      const senderTourName = normalizeTourDisplayName(order.tour);
       // Get tour details for preview
       const tours = await base44.entities.Tour.list();
       const tour = tours.find(t => {
@@ -155,15 +156,15 @@ export default function TicketFiles({ order, onUpdate, onRefresh }) {
       
       setEmailPreview({
         customerName: `${order.first_name} ${order.last_name}`,
-        tourName: order.tour,
+        tourName: senderTourName,
         tourDate: formattedDate,
         tourTime: order.tour_time,
         location: tour?.physical_address || '',
         recommendedTours,
         downloadLink,
         to: order.email,
-        from: 'info@vianovatours.com',
-        subject: `Your ${order.tour} Ticket is Attached`
+        from: `${senderTourName} <info@vianovatours.com>`,
+        subject: `Your ${senderTourName} Ticket is Attached`
       });
     } catch (err) {
       console.error('Preview error:', err);
@@ -290,12 +291,12 @@ export default function TicketFiles({ order, onUpdate, onRefresh }) {
       
       setReservedEmailPreview({
         customerName: `${order.first_name} ${order.last_name}`,
-        tourName: order.tour,
+        tourName: normalizeTourDisplayName(order.tour),
         tourDate: formattedDate,
         tourTime: order.tour_time,
         location: tour?.physical_address || '',
         to: order.email,
-        from: landingPage?.confirmation_email_from || 'info@vianovatours.com',
+        from: `${normalizeTourDisplayName(order.tour)} <${landingPage?.confirmation_email_from || 'info@vianovatours.com'}>`,
         subject: `We've Reserved Your Spot(s)`
       });
     } catch (err) {
@@ -779,4 +780,9 @@ function buildReservedEmailHTML({ customerName, tourName, tourDate, tourTime, lo
 </body>
 </html>
   `.trim();
+}
+
+function normalizeTourDisplayName(rawTourName) {
+  const value = String(rawTourName || "").replace(/\s+tour$/i, "").trim();
+  return value || "Via Nova Tours";
 }
