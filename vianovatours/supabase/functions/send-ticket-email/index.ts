@@ -27,7 +27,7 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const sendGridApiKey = Deno.env.get("SENDGRID_API_KEY") ?? "";
 const fromEmail = "info@vianovatours.com";
-const fromName = Deno.env.get("SENDGRID_FROM_NAME") || "Via Nova Tours";
+const defaultFromName = Deno.env.get("SENDGRID_FROM_NAME") || "Via Nova Tours";
 const archiveBcc = Deno.env.get("SENDGRID_ARCHIVE_BCC") || "archive@vianovatours.com";
 const googleDriveAccessToken = Deno.env.get("GOOGLEDRIVE_ACCESS_TOKEN") || "";
 
@@ -123,12 +123,14 @@ const requireStaffOrAdmin = async (req: Request) => {
 const sendEmail = async ({
   to,
   bcc,
+  fromName,
   subject,
   html,
   attachments,
 }: {
   to: string;
   bcc?: string | null;
+  fromName: string;
   subject: string;
   html: string;
   attachments?: Array<{
@@ -152,7 +154,7 @@ const sendEmail = async ({
     },
     body: JSON.stringify({
       personalizations: [personalization],
-      from: { email: fromEmail, name: fromName },
+      from: { email: fromEmail, name: fromName || defaultFromName },
       subject,
       content: [{ type: "text/html", value: html }],
       attachments:
@@ -300,6 +302,184 @@ const fetchAttachment = async (fileUrl: string, index: number) => {
   throw new Error(lastError);
 };
 
+const normalizeTourName = (value: string | null | undefined) =>
+  String(value || "")
+    .replace(/\s+tour$/i, "")
+    .trim();
+
+const formatTourDate = (value: string | null | undefined) => {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const escapeHtml = (input: unknown) =>
+  String(input ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const buildTicketEmailHtml = ({
+  customerName,
+  tourName,
+  tourDate,
+  tourTime,
+  location,
+  recommendedTours,
+  downloadLink,
+}: {
+  customerName: string;
+  tourName: string;
+  tourDate: string;
+  tourTime: string;
+  location: string;
+  recommendedTours: Array<{
+    tour_name: string;
+    domain: string;
+    hero_image_url?: string | null;
+    hero_subtitle?: string | null;
+    description?: string | null;
+  }>;
+  downloadLink?: string;
+}) => {
+  const recommendedSection =
+    recommendedTours.length > 0
+      ? `
+    <table role="presentation" style="width: 100%; margin-top: 40px;">
+      <tr>
+        <td style="padding: 20px; background-color: #f7fafc;">
+          <h2 style="color: #2d3748; font-size: 22px; font-weight: bold; text-align: center; margin-bottom: 30px;">
+            You might also like these tours
+          </h2>
+          <table role="presentation" style="width: 100%;">
+            <tr>
+              ${recommendedTours
+                .map((tour) => {
+                  const width = Math.floor(100 / recommendedTours.length);
+                  const subtitle = tour.hero_subtitle || tour.description || "";
+                  const image = tour.hero_image_url
+                    ? `<img src="${escapeHtml(
+                        tour.hero_image_url
+                      )}" alt="${escapeHtml(
+                        tour.tour_name
+                      )}" style="width: 100%; height: 180px; object-fit: cover; display: block;" />`
+                    : "";
+                  return `
+                <td style="padding: 10px; vertical-align: top; width: ${width}%;">
+                  <table role="presentation" style="width: 100%; background-color: white; border-radius: 8px; overflow: hidden;">
+                    <tr><td style="padding: 0;">${image}</td></tr>
+                    <tr>
+                      <td style="padding: 20px;">
+                        <h3 style="color: #2d3748; font-size: 18px; font-weight: bold; margin: 0 0 10px 0;">${escapeHtml(
+                          tour.tour_name
+                        )}</h3>
+                        <p style="color: #4a5568; font-size: 14px; line-height: 1.6; margin: 0 0 15px 0;">
+                          ${escapeHtml(String(subtitle).slice(0, 140))}
+                        </p>
+                        <a href="https://${escapeHtml(
+                          tour.domain
+                        )}" target="_blank" style="display: inline-block; background-color: #4c51bf; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 14px;">
+                          Book Now
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>`;
+                })
+                .join("")}
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>`
+      : "";
+
+  const locationBlock = location
+    ? `<p style="color: #2d3748; font-size: 14px; margin: 0 0 10px 0;">
+        <strong>Location:</strong>
+        <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+          location
+        )}" target="_blank" style="color: #4c51bf; text-decoration: none; margin-left: 5px;">
+          📍 ${escapeHtml(location)}
+        </a>
+      </p>`
+    : "";
+
+  const dateBlock = tourDate
+    ? `<p style="color: #2d3748; font-size: 14px; margin: 0;">
+        <strong>Date:</strong> ${escapeHtml(tourDate)} ${escapeHtml(tourTime || "")}
+      </p>`
+    : "";
+
+  const downloadBlock = downloadLink
+    ? `
+      <div style="text-align: center; margin-bottom: 30px;">
+        <a href="${escapeHtml(
+          downloadLink
+        )}" target="_blank" style="display: inline-block; background-color: #10b981; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">
+          📥 Download Ticket
+        </a>
+      </div>`
+    : "";
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your Ticket</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f7fafc;">
+  <table role="presentation" style="width: 100%; max-width: 600px; margin: 0 auto; background-color: white;">
+    <tr>
+      <td style="background-color: #4c51bf; padding: 30px; text-align: center;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">Your Ticket is Below</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 40px 30px;">
+        <p style="color: #2d3748; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+          Hello ${escapeHtml(customerName)},
+        </p>
+        <p style="color: #2d3748; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+          Here is your ticket — we've attached it as a PDF for your convenience.<br>
+          You can also view the PDF on your mobile phone at ${escapeHtml(
+            tourName
+          )}, where it will be accepted at the gate.
+        </p>
+        <p style="color: #2d3748; font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">
+          Remember: your tickets are valid during your selected date and time slot on the ticket.
+        </p>
+        ${downloadBlock}
+        <table role="presentation" style="width: 100%; background-color: #edf2f7; border-radius: 8px; padding: 20px; margin-bottom: 30px;">
+          <tr><td>${locationBlock}${dateBlock}</td></tr>
+        </table>
+        <p style="color: #2d3748; font-size: 16px; line-height: 1.6; margin: 0;">
+          Thank you for your booking, and enjoy your visit!
+        </p>
+      </td>
+    </tr>
+    ${recommendedSection}
+    <tr>
+      <td style="background-color: #2d3748; padding: 30px; text-align: center;">
+        <p style="color: #a0aec0; font-size: 12px; margin: 0;">
+          © ${new Date().getFullYear()} Via Nova Tours. All rights reserved.
+        </p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`.trim();
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -402,17 +582,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    const downloadSection = payload.downloadLink
-      ? `<p><a href="${payload.downloadLink}" target="_blank" rel="noopener noreferrer">Download your ticket</a></p>`
-      : "";
-
     const destinationEmail = testMode
       ? requestedTestEmail || archiveBcc
       : order.email;
-    const bccEmail =
-      !testMode && archiveBcc && archiveBcc.toLowerCase() !== destinationEmail.toLowerCase()
-        ? archiveBcc
-        : null;
 
     if (!destinationEmail) {
       return jsonResponse(
@@ -420,20 +592,112 @@ Deno.serve(async (req) => {
         400
       );
     }
+    const destinationEmailNormalized = String(destinationEmail).toLowerCase();
+    const bccEmail =
+      !testMode && archiveBcc && archiveBcc.toLowerCase() !== destinationEmailNormalized
+        ? archiveBcc
+        : null;
 
-    const subject = `Your ${order.tour || "tour"} Ticket is Ready`;
-    const html = `
-      <h2>Your ${order.tour || "tour"} tickets</h2>
-      <p>Hi ${order.first_name || "there"},</p>
-      <p>Your booking is confirmed. Your ticket PDF is attached to this email.</p>
-      ${downloadSection}
-      <p>Order ID: ${order.order_id}</p>
-      <p>Thanks,<br/>Via Nova Tours</p>
-    `;
+    const normalizedOrderTour = normalizeTourName(order.tour || "");
+    const { data: toursData, error: toursError } = await supabase
+      .from("tours")
+      .select("name, physical_address, recommended_tours");
+    if (toursError) {
+      return jsonResponse({ success: false, error: toursError.message }, 500);
+    }
+
+    const tourRows = Array.isArray(toursData) ? toursData : [];
+    const matchedTour = normalizedOrderTour
+      ? tourRows.find(
+          (tour) =>
+            normalizeTourName(tour?.name || "").toLowerCase() ===
+            normalizedOrderTour.toLowerCase()
+        ) ||
+        tourRows.find(
+          (tour) =>
+            normalizeTourName(tour?.name || "")
+              .toLowerCase()
+              .includes(normalizedOrderTour.toLowerCase()) ||
+            normalizedOrderTour
+              .toLowerCase()
+              .includes(normalizeTourName(tour?.name || "").toLowerCase())
+        )
+      : null;
+
+    const recommendedTourNames = Array.isArray(matchedTour?.recommended_tours)
+      ? matchedTour.recommended_tours
+          .map((name: unknown) => String(name || "").trim())
+          .filter(Boolean)
+      : [];
+
+    let recommendedTours: Array<{
+      tour_name: string;
+      domain: string;
+      hero_image_url?: string | null;
+      hero_subtitle?: string | null;
+      description?: string | null;
+    }> = [];
+
+    if (recommendedTourNames.length) {
+      const { data: landingData, error: landingError } = await supabase
+        .from("tour_landing_pages")
+        .select("tour_name, domain, hero_image_url, hero_subtitle, description, is_active")
+        .eq("is_active", true)
+        .in("tour_name", recommendedTourNames);
+      if (landingError) {
+        return jsonResponse({ success: false, error: landingError.message }, 500);
+      }
+
+      const landingRows = Array.isArray(landingData) ? landingData : [];
+      recommendedTours = recommendedTourNames
+        .map((name) => {
+          const page = landingRows.find(
+            (row) =>
+              normalizeTourName(row?.tour_name || "").toLowerCase() ===
+              normalizeTourName(name).toLowerCase()
+          );
+          if (!page?.domain) return null;
+          return {
+            tour_name: normalizeTourName(page.tour_name || name) || name,
+            domain: String(page.domain || "").trim(),
+            hero_image_url: page.hero_image_url || null,
+            hero_subtitle: page.hero_subtitle || null,
+            description: page.description || null,
+          };
+        })
+        .filter(Boolean) as Array<{
+          tour_name: string;
+          domain: string;
+          hero_image_url?: string | null;
+          hero_subtitle?: string | null;
+          description?: string | null;
+        }>;
+    }
+
+    const tourName = normalizedOrderTour || "your tour";
+    const tourDate = formatTourDate(order.tour_date);
+    const tourTime = String(order.tour_time || "").trim();
+    const location = String(matchedTour?.physical_address || "").trim();
+    const customerName = `${String(order.first_name || "").trim()} ${String(
+      order.last_name || ""
+    ).trim()}`.trim() || "there";
+    const senderName = tourName || defaultFromName;
+
+    const subject = `Your ${tourName} Ticket is Attached`;
+    const html = buildTicketEmailHtml({
+      customerName,
+      tourName,
+      tourDate,
+      tourTime,
+      location,
+      recommendedTours,
+      downloadLink: payload.downloadLink,
+    });
 
     await sendEmail({
       to: destinationEmail,
       bcc: bccEmail,
+      fromName: senderName,
       subject,
       html,
       attachments,
@@ -445,6 +709,7 @@ Deno.serve(async (req) => {
       to: destinationEmail,
       subject,
       sent_by: auth.context.user.email || auth.context.user.id,
+      from_name: senderName,
       bcc: bccEmail,
       attachment_count: attachments.length,
     };

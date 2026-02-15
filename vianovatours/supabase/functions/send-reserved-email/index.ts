@@ -24,7 +24,7 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const sendGridApiKey = Deno.env.get("SENDGRID_API_KEY") ?? "";
 const fromEmail = "info@vianovatours.com";
-const fromName = Deno.env.get("SENDGRID_FROM_NAME") || "Via Nova Tours";
+const defaultFromName = Deno.env.get("SENDGRID_FROM_NAME") || "Via Nova Tours";
 const archiveBcc = Deno.env.get("SENDGRID_ARCHIVE_BCC") || "archive@vianovatours.com";
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
@@ -116,6 +116,11 @@ const requireStaffOrAdmin = async (req: Request) => {
   };
 };
 
+const normalizeTourName = (value: string | null | undefined) =>
+  String(value || "")
+    .replace(/\s+tour$/i, "")
+    .trim();
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -194,6 +199,7 @@ Deno.serve(async (req) => {
       );
     }
 
+    const senderName = normalizeTourName(order.tour) || defaultFromName;
     const subject = "We've Reserved Your Spot(s)";
     const html = `
       <h2>We've reserved your spot</h2>
@@ -219,7 +225,7 @@ Deno.serve(async (req) => {
             bcc: archiveBcc ? [{ email: archiveBcc }] : [],
           },
         ],
-        from: { email: fromEmail, name: fromName },
+        from: { email: fromEmail, name: senderName },
         subject,
         content: [{ type: "text/html", value: html }],
       }),
@@ -236,6 +242,7 @@ Deno.serve(async (req) => {
       to: order.email,
       subject,
       sent_by: auth.context.user.email || auth.context.user.id,
+      from_name: senderName,
     };
     const existingComms = Array.isArray(order.email_communications)
       ? order.email_communications
