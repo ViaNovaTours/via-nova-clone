@@ -10,7 +10,21 @@ export type AuthContext = {
   };
 };
 
-const getBearerToken = (req: Request) => {
+const normalizeBearer = (raw: string | null) => {
+  if (!raw) return null;
+  const value = raw.trim();
+  if (!value) return null;
+  if (value.toLowerCase().startsWith("bearer ")) {
+    const token = value.slice(7).trim();
+    return token || null;
+  }
+  return value;
+};
+
+const getRequestToken = (req: Request) => {
+  const forwarded = normalizeBearer(req.headers.get("x-user-jwt"));
+  if (forwarded) return forwarded;
+
   const authorization = req.headers.get("authorization") || "";
   const [scheme, token] = authorization.split(" ");
   if (scheme?.toLowerCase() !== "bearer" || !token) {
@@ -20,12 +34,18 @@ const getBearerToken = (req: Request) => {
 };
 
 const getRoleFromMetadata = (user: any) => {
-  return (
+  const raw =
     user?.app_metadata?.role ||
     user?.user_metadata?.role ||
     user?.role ||
-    null
-  );
+    null;
+  if (typeof raw !== "string") return null;
+  const role = raw.trim().toLowerCase();
+  if (!role) return null;
+  if (["authenticated", "anon", "service_role"].includes(role)) {
+    return null;
+  }
+  return role;
 };
 
 const getProfileRole = async (userId: string) => {
@@ -38,11 +58,12 @@ const getProfileRole = async (userId: string) => {
   if (error) {
     return null;
   }
-  return data?.role || null;
+  const role = String(data?.role || "").trim().toLowerCase();
+  return role || null;
 };
 
 export const getRequestUser = async (req: Request): Promise<AuthContext | null> => {
-  const token = getBearerToken(req);
+  const token = getRequestToken(req);
   if (!token) {
     return null;
   }
@@ -90,7 +111,7 @@ export const requireAdmin = async (
     return auth;
   }
 
-  if (auth.context.user.role !== "admin") {
+  if (String(auth.context.user.role || "").trim().toLowerCase() !== "admin") {
     return {
       ok: false,
       response: jsonResponse(
